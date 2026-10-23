@@ -57,6 +57,10 @@ function Login() {
           </button>
         </form>
 
+        <p className='mt-4 text-center text-sm'>
+          <Link className='font-semibold text-blue-700' to='/forgot-password'>Forgot password?</Link>
+        </p>
+
         <p className='mt-5 text-center text-sm text-slate-500'>
           No account? <Link className='font-semibold text-blue-700' to='/register'>Create one</Link>
         </p>

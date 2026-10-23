@@ -9,7 +9,8 @@ router.use(protect);
 
 router.get('/', async (req, res) => {
   if (isDemoDatabase()) return res.json(demoServiceRequests);
-  res.json(await ServiceRequest.find().populate('catalogItem').sort({ createdAt: -1 }));
+  const query = req.user.role === 'user' ? { requester: req.user.name } : {};
+  res.json(await ServiceRequest.find(query).populate('catalogItem').sort({ createdAt: -1 }));
 });
 
 router.post('/', async (req, res) => {

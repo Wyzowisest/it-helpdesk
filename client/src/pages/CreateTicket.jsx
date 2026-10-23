@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Send } from 'lucide-react';
+import toast from 'react-hot-toast';
 import api from '../api';
 
 function CreateTicket() {
@@ -20,10 +21,13 @@ function CreateTicket() {
     setLoading(true);
 
     try {
-      await api.post('/tickets', form);
+      const { data } = await api.post('/tickets', form);
+      toast.success(`Ticket ${data.ticketNumber || ''} submitted successfully.`.trim());
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.message || 'Ticket creation failed');
+      const message = err.response?.data?.message || 'Ticket creation failed';
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }

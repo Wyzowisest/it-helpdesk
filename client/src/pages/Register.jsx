@@ -9,8 +9,7 @@ function Register() {
     name: '',
     email: '',
     password: '',
-    department: '',
-    role: 'user'
+    department: ''
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -71,16 +70,6 @@ function Register() {
             value={form.department}
             onChange={(event) => setForm({ ...form, department: event.target.value })}
           />
-          <select
-            className='w-full rounded-md border border-slate-300 p-3 text-slate-900 outline-blue-500'
-            value={form.role}
-            onChange={(event) => setForm({ ...form, role: event.target.value })}
-          >
-            <option value='user'>User / Employee</option>
-            <option value='staff'>Support Staff / Technician</option>
-            <option value='admin'>Admin</option>
-          </select>
-
           <button className='flex w-full items-center justify-center gap-2 rounded-md bg-emerald-600 p-3 font-semibold text-white hover:bg-emerald-700' disabled={loading}>
             <UserPlus size={18} />
             {loading ? 'Creating account...' : 'Register'}

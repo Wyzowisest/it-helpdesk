@@ -4,6 +4,9 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import CreateTicket from './pages/CreateTicket';
 import SupportHome from './pages/SupportHome';
+import VerifyEmail from './pages/VerifyEmail';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import { getStoredUser } from './api';
 
 function ProtectedRoute({ children }) {
@@ -40,6 +43,9 @@ function App() {
         <Route path='/portal' element={<DashboardRoute page='portal' />} />
         <Route path='/login' element={<Login />} />
         <Route path='/register' element={<Register />} />
+        <Route path='/verify-email' element={<VerifyEmail />} />
+        <Route path='/forgot-password' element={<ForgotPassword />} />
+        <Route path='/reset-password' element={<ResetPassword />} />
         <Route path='/create-ticket' element={<ProtectedRoute><CreateTicket /></ProtectedRoute>} />
       </Routes>
     </BrowserRouter>

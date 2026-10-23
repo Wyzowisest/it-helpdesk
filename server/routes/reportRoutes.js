@@ -1,5 +1,6 @@
 import express from 'express';
 import Ticket from '../models/Ticket.js';
+import User from '../models/User.js';
 import protect, { requireRole } from '../middleware/authMiddleware.js';
 import { demoTickets, isDemoDatabase } from '../utils/demoStore.js';
 
@@ -13,21 +14,34 @@ const countBy = (items, key) => items.reduce((acc, item) => {
 }, {});
 
 router.get('/service-desk', async (req, res) => {
-  const tickets = isDemoDatabase() ? demoTickets : await Ticket.find();
+  const tickets = isDemoDatabase()
+    ? demoTickets
+    : await Ticket.find().populate('assignedTo', 'name');
+  const agents = isDemoDatabase()
+    ? []
+    : await User.find({ role: { $in: ['admin', 'staff'] } }).select('name');
+  const resolvedTickets = tickets.filter((ticket) => ['Resolved', 'Closed'].includes(ticket.status));
+  const agentPerformance = agents.map((agent) => {
+    const assigned = tickets.filter((ticket) => ticket.assignedTo?._id?.toString() === agent._id.toString());
+    const resolved = assigned.filter((ticket) => ['Resolved', 'Closed'].includes(ticket.status));
+    return {
+      agent: agent.name,
+      assigned: assigned.length,
+      resolved: resolved.length,
+      csat: 0,
+      slaMet: assigned.length ? Math.round((resolved.length / assigned.length) * 100) : 0
+    };
+  });
 
   res.json({
     totalTickets: tickets.length,
-    resolutionRate: 91,
-    averageResolutionTime: '4.1h',
-    csat: 94,
+    resolutionRate: tickets.length ? Math.round((resolvedTickets.length / tickets.length) * 100) : 0,
+    averageResolutionTime: '0h',
+    csat: 0,
     byCategory: countBy(tickets, 'category'),
     byStatus: countBy(tickets, 'status'),
     byPriority: countBy(tickets, 'priority'),
-    agentPerformance: [
-      { agent: 'Sarah K.', assigned: 48, resolved: 44, csat: 97, slaMet: 95 },
-      { agent: 'Michael O.', assigned: 61, resolved: 55, csat: 92, slaMet: 88 },
-      { agent: 'Amaka A.', assigned: 52, resolved: 49, csat: 95, slaMet: 93 }
-    ]
+    agentPerformance
   });
 });
 

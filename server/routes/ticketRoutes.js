@@ -1,7 +1,9 @@
 import express from 'express';
 import Ticket from '../models/Ticket.js';
+import User from '../models/User.js';
 import protect, { requireRole } from '../middleware/authMiddleware.js';
 import { demoTickets, isDemoDatabase, nextId } from '../utils/demoStore.js';
+import { sendAgentAssignmentEmail, sendTicketConfirmation } from '../utils/emailService.js';
 
 const router = express.Router();
 
@@ -172,7 +174,7 @@ router.get('/:id/messages', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { title, description, category, priority } = req.body;
+    const { title, description, category, priority, assignedTo } = req.body;
 
     if (!title || !description) {
       return res.status(400).json({ message: 'Title and description are required' });
@@ -206,10 +208,26 @@ router.post('/', async (req, res) => {
       description,
       category,
       priority,
-      createdBy: req.user.id
+      createdBy: req.user.id,
+      assignedTo: assignedTo || null
     });
 
-    const populatedTicket = await ticket.populate('createdBy', 'name email department');
+    const populatedTicket = await ticket.populate([
+      { path: 'createdBy', select: 'name email department' },
+      { path: 'assignedTo', select: 'name email role' }
+    ]);
+
+    try {
+      await sendTicketConfirmation(populatedTicket.createdBy, populatedTicket);
+
+      if (assignedTo) {
+        const agent = await User.findById(assignedTo);
+        if (agent) await sendAgentAssignmentEmail(agent, populatedTicket);
+      }
+    } catch (emailError) {
+      console.error('Ticket email notification failed:', emailError);
+    }
+
     res.status(201).json(populatedTicket);
   } catch (error) {
     res.status(500).json({ message: 'Ticket creation failed', error: error.message });

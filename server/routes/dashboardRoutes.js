@@ -2,6 +2,8 @@ import express from 'express';
 import Ticket from '../models/Ticket.js';
 import User from '../models/User.js';
 import Asset from '../models/Asset.js';
+import ServiceRequest from '../models/ServiceRequest.js';
+import ChangeRequest from '../models/ChangeRequest.js';
 import protect from '../middleware/authMiddleware.js';
 import { demoAssets, demoChanges, demoServiceRequests, demoTickets, demoUsers, isDemoDatabase } from '../utils/demoStore.js';
 
@@ -38,10 +40,14 @@ router.get('/summary', async (req, res) => {
     });
   }
 
-  const [tickets, users, assets] = await Promise.all([
-    Ticket.find(),
+  const ticketScope = req.user.role === 'user' ? { createdBy: req.user.id } : {};
+
+  const [tickets, users, assets, requests, changes] = await Promise.all([
+    Ticket.find(ticketScope),
     User.find(),
-    Asset.find()
+    Asset.find(),
+    ServiceRequest.find(),
+    ChangeRequest.find()
   ]);
 
   const byStatus = countBy(tickets, 'status');
@@ -56,6 +62,14 @@ router.get('/summary', async (req, res) => {
       overdue: 0,
       byStatus,
       byPriority
+    },
+    requests: {
+      total: requests.length,
+      pending: requests.filter((item) => item.status === 'Pending' || item.approvalStatus === 'Awaiting').length
+    },
+    changes: {
+      total: changes.length,
+      pending: changes.filter((item) => item.status === 'Pending').length
     },
     assets: { total: assets.length },
     users: { total: users.length, staff: users.filter((user) => user.role === 'staff').length },

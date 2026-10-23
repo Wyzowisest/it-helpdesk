@@ -29,7 +29,15 @@ const userSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
-  }
+  },
+  emailVerified: {
+    type: Boolean,
+    default: false
+  },
+  verificationToken: String,
+  verificationTokenExpiry: Date,
+  resetPasswordToken: String,
+  resetPasswordExpiry: Date
 }, { timestamps: true });
 
 export default mongoose.model('User', userSchema);

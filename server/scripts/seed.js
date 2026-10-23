@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
 
 import Asset from '../models/Asset.js';
 import AutomationRule from '../models/AutomationRule.js';
@@ -25,9 +26,17 @@ import {
 dotenv.config();
 
 const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+const production = process.env.NODE_ENV === 'production';
+const seedAdminPassword = process.env.SEED_ADMIN_PASSWORD;
+const seedAdminEmail = (process.env.SEED_ADMIN_EMAIL || 'itdirector@company.com').toLowerCase();
 
 if (!mongoUri || mongoUri === 'your_mongodb_connection_string') {
   console.error('Set MONGODB_URI or MONGO_URI in .env before seeding.');
+  process.exit(1);
+}
+
+if (production && (!seedAdminPassword || seedAdminPassword.length < 12)) {
+  console.error('Set SEED_ADMIN_PASSWORD to a unique password with at least 12 characters before production seeding.');
   process.exit(1);
 }
 
@@ -40,6 +49,21 @@ const upsertBy = async (Model, filter, data) => (
 try {
   await mongoose.connect(mongoUri);
 
+  if (production) {
+    await upsertBy(User, { email: seedAdminEmail }, {
+      name: 'IT Administrator',
+      email: seedAdminEmail,
+      password: await bcrypt.hash(seedAdminPassword, 12),
+      department: 'IT',
+      role: 'admin',
+      isActive: true,
+      emailVerified: true
+    });
+    console.log(`Production administrator seeded: ${seedAdminEmail}`);
+    await mongoose.disconnect();
+    process.exit(0);
+  }
+
   const usersByDemoId = new Map();
   const usersByEmail = new Map();
 
@@ -47,7 +71,9 @@ try {
     const user = await upsertBy(User, { email: demoUser.email }, {
       name: demoUser.name,
       email: demoUser.email,
-      password: demoUser.password,
+      password: demoUser.email === 'itdirector@company.com' && seedAdminPassword
+        ? await bcrypt.hash(seedAdminPassword, 12)
+        : demoUser.password,
       department: demoUser.department,
       role: demoUser.role,
       isActive: demoUser.isActive

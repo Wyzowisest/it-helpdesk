@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import {
   Activity,
   AlertTriangle,
@@ -216,8 +217,20 @@ const toArticleRows = (items = []) => items.map((article) => [
 const toCatalogRows = (items = []) => items.map((item) => {
   const icon = item.category === 'Network' ? ShieldCheck : item.category === 'Software' ? AppWindow : Laptop;
   const tone = item.category === 'Network' ? 'bg-cyan-50 text-cyan-700' : item.category === 'Software' ? 'bg-violet-50 text-violet-600' : 'bg-blue-50 text-blue-600';
-  return [item.name, item.description, icon, tone, item.sla];
+  return [item.name, item.description, icon, tone, item.sla, item._id, item.category, item.approvalRequired];
 });
+
+function downloadCsv(filename, headers, rows) {
+  const escape = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+  const contents = [headers, ...rows].map((row) => row.map(escape).join(',')).join('\n');
+  const url = URL.createObjectURL(new Blob([contents], { type: 'text/csv;charset=utf-8;' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+  toast.success('Report exported successfully.');
+}
 
 function initials(name) {
   return name.split(' ').map((part) => part[0]).join('').slice(0, 2);
@@ -294,6 +307,8 @@ function PageHeader({ title, subtitle, children }) {
 }
 
 function DataTable({ headers, rows, renderCell, onRowClick }) {
+  const safeRows = rows || [];
+
   return (
     <div className='overflow-x-auto'>
       <table className='w-full border-collapse text-sm'>
@@ -305,7 +320,7 @@ function DataTable({ headers, rows, renderCell, onRowClick }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {safeRows.map((row) => (
             <tr
               key={row[0]}
               onClick={() => onRowClick?.(row)}
@@ -318,6 +333,13 @@ function DataTable({ headers, rows, renderCell, onRowClick }) {
               ))}
             </tr>
           ))}
+          {!safeRows.length && (
+            <tr>
+              <td className='px-4 py-8 text-center text-sm font-semibold text-[#9ca3c8]' colSpan={headers.length}>
+                No records yet
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
@@ -367,23 +389,31 @@ function Avatar({ name, tone = 'blue' }) {
   return <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-extrabold ${tones[tone] || tones.blue}`}>{initials(name)}</span>;
 }
 
-function DashboardHome({ openModal, showPage, summary, ticketRows }) {
+function DashboardHome({ openModal, showPage, summary, ticketRows, user, users }) {
   const ticketStats = summary?.tickets;
   const sla = summary?.sla;
+  const firstName = user?.name?.split(' ')[0] || 'there';
+  const today = new Date().toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric'
+  });
+  const recentRows = (ticketRows || []).slice(0, 4);
 
   return (
     <>
-      <PageHeader title='Good morning, John' subtitle="Here's what's happening in your service desk today - Tuesday, May 12 2026">
+      <PageHeader title={`Good morning, ${firstName}`} subtitle={`Here's what's happening in your service desk today - ${today}`}>
         <Button onClick={openModal}><Plus size={16} /> New Ticket</Button>
       </PageHeader>
 
       <div className='mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6'>
-        <StatCard label='Open incidents' value={ticketStats?.open ?? '14'} accent='text-[#2563EB]' trend='Live from API' />
-        <StatCard label='Awaiting response' value={ticketStats?.inProgress ?? '7'} accent='text-amber-600' trend='In progress queue' />
-        <StatCard label='Overdue tickets' value={ticketStats?.overdue ?? '3'} accent='text-red-600' trend='SLA watchlist' />
-        <StatCard label='Resolved today' value={ticketStats?.resolved ?? '11'} accent='text-emerald-600' trend='Resolved tickets' />
+        <StatCard label='Open incidents' value={ticketStats?.open ?? 0} accent='text-[#2563EB]' trend='Live from API' />
+        <StatCard label='Awaiting response' value={ticketStats?.inProgress ?? 0} accent='text-amber-600' trend='In progress queue' />
+        <StatCard label='Overdue tickets' value={ticketStats?.overdue ?? 0} accent='text-red-600' trend='SLA watchlist' />
+        <StatCard label='Resolved tickets' value={ticketStats?.resolved ?? 0} accent='text-emerald-600' trend='All resolved tickets' />
         <StatCard label='Avg. response time' value='1.8h' accent='text-violet-600' trend='SLA target: 2h' />
-        <StatCard label='CSAT score' value='94%' accent='text-emerald-600' trend='+2% this week' />
+        <StatCard label='CSAT score' value={`${summary?.csat ?? 0}%`} accent='text-emerald-600' trend='Customer rating' />
       </div>
 
       <div className='grid grid-cols-1 gap-5 xl:grid-cols-[1fr_320px]'>
@@ -391,7 +421,7 @@ function DashboardHome({ openModal, showPage, summary, ticketRows }) {
           <Card title='My open tickets' icon={Ticket} action={<Button variant='secondary' onClick={() => showPage('incidents')}>View all</Button>}>
             <DataTable
               headers={['ID', 'Subject', 'Priority', 'SLA', 'Updated']}
-              rows={(ticketRows || tickets).slice(0, 4).map(([id, subject, , , priority, , sla, created]) => [id, subject, priority, sla, created])}
+              rows={(ticketRows || []).slice(0, 4).map(([id, subject, , , priority, , sla, created]) => [id, subject, priority, sla, created])}
               renderCell={(cell, index) => index === 0 ? <b className='text-[#2563EB]'>{cell}</b> : index === 2 || index === 3 ? <Badge>{cell}</Badge> : cell}
             />
           </Card>
@@ -437,22 +467,18 @@ function DashboardHome({ openModal, showPage, summary, ticketRows }) {
           </Card>
 
           <Card title='Agent availability' icon={Users}>
-            <AgentList />
+            <AgentList users={users} />
           </Card>
 
           <Card title='Recent activity' icon={Activity}>
             <ul className='space-y-4 p-5'>
-              {[
-                ['INC-2845 resolved', 'Printer offline - Sarah K. - 12 min ago', 'bg-emerald-500'],
-                ['New ticket INC-2847', 'Laptop flickering - John Adeyemi - 34 min ago', 'bg-[#2563EB]'],
-                ['CHG-0041 submitted', 'DB migration - Emeka O. - 1h ago', 'bg-amber-500'],
-                ['INC-2831 escalated', 'Shared drive - Michael O. - 2h ago', 'bg-slate-400']
-              ].map((item) => (
-                <li key={item[0]} className='flex gap-3'>
-                  <span className={`mt-1 h-3 w-3 rounded-full ${item[2]}`} />
-                  <span><b className='block text-sm text-[#0F1B3D]'>{item[0]}</b><small className='text-[#9ca3c8]'>{item[1]}</small></span>
+              {recentRows.map(([id, subject, requester, assignee, , status, , created]) => (
+                <li key={id} className='flex gap-3'>
+                  <span className={`mt-1 h-3 w-3 rounded-full ${status === 'Resolved' ? 'bg-emerald-500' : status === 'Open' ? 'bg-[#2563EB]' : 'bg-amber-500'}`} />
+                  <span><b className='block text-sm text-[#0F1B3D]'>{id} {status}</b><small className='text-[#9ca3c8]'>{subject} - {requester} - {assignee} - {created}</small></span>
                 </li>
               ))}
+              {!recentRows.length && <li className='text-sm font-semibold text-[#9ca3c8]'>No recent ticket activity yet.</li>}
             </ul>
           </Card>
         </div>
@@ -461,10 +487,107 @@ function DashboardHome({ openModal, showPage, summary, ticketRows }) {
   );
 }
 
-function AgentList() {
+function AdminDashboardHome({ openModal, showPage, summary, ticketRows, user, users, openTicket }) {
+  const firstName = user?.name?.split(' ')[0] || 'Admin';
+  const adminCount = (users || []).filter((item) => item.role === 'admin').length;
+  const staffCount = (users || []).filter((item) => item.role === 'staff').length;
+  const recentTickets = (ticketRows || []).slice(0, 5);
+  const quickLinks = [
+    ['Users & roles', 'Manage accounts and permissions', Users, 'users'],
+    ['Automation', 'Review workflow rules', Bot, 'automation'],
+    ['Reports', 'Explore service desk performance', BarChart3, 'reports'],
+    ['Asset inventory', 'Track assigned hardware and software', Laptop, 'assets']
+  ];
+
+  return (
+    <>
+      <div className='mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-gradient-to-r from-[#0F1B3D] to-[#1D3A78] p-6 text-white shadow-lg shadow-blue-950/10'>
+        <div>
+          <p className='mb-2 flex items-center gap-2 text-xs font-extrabold uppercase tracking-[0.18em] text-blue-200'><ShieldCheck size={15} /> Administrator overview</p>
+          <h1 className='text-2xl font-extrabold'>Welcome back, {firstName}</h1>
+          <p className='mt-2 max-w-xl text-sm text-blue-100/80'>Monitor service desk health, keep teams moving, and manage your IT operations from one place.</p>
+        </div>
+        <Button onClick={openModal}><Plus size={16} /> Create ticket</Button>
+      </div>
+
+      <div className='mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3'>
+        <StatCard label='Total incidents' value={summary?.tickets?.total ?? ticketRows?.length ?? 0} accent='text-[#2563EB]' trend={`${summary?.tickets?.open ?? 0} currently open`} />
+        <StatCard label='In progress' value={summary?.tickets?.inProgress ?? 0} accent='text-amber-600' trend='Active work queue' />
+        <StatCard label='Pending requests' value={summary?.requests?.pending ?? 0} accent='text-violet-600' trend={`${summary?.requests?.total ?? 0} requests total`} />
+        <StatCard label='Team members' value={summary?.users?.total ?? users?.length ?? 0} accent='text-emerald-600' trend={`${staffCount} support agents`} />
+        <StatCard label='Administrators' value={adminCount} accent='text-[#0F1B3D]' trend='Privileged accounts' />
+        <StatCard label='Pending changes' value={summary?.changes?.pending ?? 0} accent='text-red-600' trend={`${summary?.changes?.total ?? 0} changes total`} />
+      </div>
+
+      <div className='grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]'>
+        <div className='space-y-5'>
+          <Card title='Latest incidents' icon={Ticket} action={<Button variant='secondary' onClick={() => showPage('incidents')}>View incident queue <ChevronRight size={15} /></Button>}>
+            <DataTable
+              headers={['Ticket', 'Subject', 'Requester', 'Priority', 'Status']}
+              rows={recentTickets.map(([id, subject, requester, , priority, status]) => [id, subject, requester, priority, status])}
+              onRowClick={(row) => openTicket(row[0])}
+              renderCell={(cell, index) => index === 0 ? <b className='text-[#2563EB]'>{cell}</b> : index > 2 ? <Badge>{cell}</Badge> : cell}
+            />
+          </Card>
+
+          <Card title='Service desk health' icon={Activity} action={<Button variant='secondary' onClick={() => showPage('reports')}>Open reports</Button>}>
+            <div className='grid grid-cols-1 gap-5 p-5 sm:grid-cols-2'>
+              <div>
+                <p className='mb-3 text-xs font-extrabold uppercase tracking-wide text-[#9ca3c8]'>SLA compliance</p>
+                <ProgressRow label='First response' value={summary?.sla?.firstResponse ?? 0} color='bg-emerald-500' />
+                <ProgressRow label='Resolution' value={summary?.sla?.resolution ?? 0} />
+                <ProgressRow label='Overall' value={summary?.sla?.overall ?? 0} color='bg-emerald-500' />
+              </div>
+              <div className='grid grid-cols-2 gap-3'>
+                <div className='rounded-xl bg-blue-50 p-4'><p className='text-xs font-semibold text-blue-700'>Assets tracked</p><p className='mt-2 text-2xl font-extrabold text-blue-900'>{summary?.assets?.total ?? 0}</p></div>
+                <div className='rounded-xl bg-emerald-50 p-4'><p className='text-xs font-semibold text-emerald-700'>Customer satisfaction</p><p className='mt-2 text-2xl font-extrabold text-emerald-900'>{summary?.csat ?? 0}%</p></div>
+                <div className='col-span-2 rounded-xl border border-[#eef1f8] p-4'>
+                  <p className='text-xs font-extrabold uppercase tracking-wide text-[#9ca3c8]'>Team at a glance</p>
+                  <p className='mt-2 text-sm font-semibold text-[#1a2340]'>{staffCount} support agents · {adminCount} administrators</p>
+                  <button onClick={() => showPage('users')} className='mt-2 text-xs font-extrabold text-[#2563EB] hover:underline'>Manage team members</button>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        <div className='space-y-5'>
+          <Card title='Admin tools' icon={Settings}>
+            <div className='divide-y divide-[#f3f5fb]'>
+              {quickLinks.map(([title, description, Icon, target]) => (
+                <button key={target} onClick={() => showPage(target)} className='flex w-full items-center gap-3 px-4 py-4 text-left transition hover:bg-[#f8faff]'>
+                  <span className='flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-[#2563EB]'><Icon size={19} /></span>
+                  <span className='min-w-0 flex-1'><b className='block text-sm text-[#1a2340]'>{title}</b><small className='mt-1 block text-xs text-[#9ca3c8]'>{description}</small></span>
+                  <ChevronRight size={17} className='text-[#bfcfe8]' />
+                </button>
+              ))}
+            </div>
+          </Card>
+
+          <Card title='Ticket status' icon={BarChart3}>
+            <div className='p-5'>
+              <ProgressRow label='Open' value={summary?.tickets?.total ? Math.round(((summary.tickets.open || 0) / summary.tickets.total) * 100) : 0} />
+              <ProgressRow label='In progress' value={summary?.tickets?.total ? Math.round(((summary.tickets.inProgress || 0) / summary.tickets.total) * 100) : 0} color='bg-amber-500' />
+              <ProgressRow label='Resolved' value={summary?.tickets?.total ? Math.round(((summary.tickets.resolved || 0) / summary.tickets.total) * 100) : 0} color='bg-emerald-500' />
+              <p className='mt-3 text-xs text-[#9ca3c8]'>Based on current incident totals.</p>
+            </div>
+          </Card>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function AgentList({ users }) {
+  const rows = users?.length
+    ? users
+      .filter((user) => ['admin', 'staff'].includes(user.role))
+      .map((user) => [user.name, user.department || user.role, initials(user.name), 'blue', user.role === 'admin' ? 'Admin' : 'Agent', user.isActive !== false])
+    : [];
+
   return (
     <div className='divide-y divide-[#f3f5fb]'>
-      {agents.map(([name, team, code, tone, count, online]) => (
+      {rows.map(([name, team, code, tone, count, online]) => (
         <div key={name} className='flex items-center gap-3 px-4 py-3'>
           <span className={`h-2 w-2 rounded-full ${online ? 'bg-emerald-500' : 'bg-slate-400'}`} />
           <Avatar name={code} tone={tone} />
@@ -475,12 +598,16 @@ function AgentList() {
           <div className='text-right text-sm font-extrabold text-[#0F1B3D]'>{count}<span className='block text-[11px] font-medium text-[#9ca3c8]'>{online ? 'tickets' : 'since 12pm'}</span></div>
         </div>
       ))}
+      {!rows.length && <p className='px-4 py-5 text-sm font-semibold text-[#9ca3c8]'>No agents loaded yet.</p>}
     </div>
   );
 }
 
-function IncidentsPage({ openModal, ticketRows, openTicket }) {
-  const rows = ticketRows?.length ? ticketRows : tickets;
+function IncidentsPage({ openModal, ticketRows, openTicket, summary, onExport }) {
+  const rows = ticketRows || [];
+  const ticketStats = summary?.tickets;
+  const criticalCount = rows.filter((row) => row[4] === 'Critical').length;
+  const unassignedCount = rows.filter((row) => row[3] === 'Unassigned').length;
 
   return (
     <>
@@ -488,22 +615,25 @@ function IncidentsPage({ openModal, ticketRows, openTicket }) {
         <Button onClick={openModal}><Plus size={16} /> Log Incident</Button>
       </PageHeader>
       <div className='mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5'>
-        <StatCard label='All open' value='14' accent='text-[#2563EB]' />
-        <StatCard label='Critical' value='2' accent='text-red-600' />
-        <StatCard label='Overdue' value='3' accent='text-amber-600' />
-        <StatCard label='Resolved today' value='11' accent='text-emerald-600' />
-        <StatCard label='Unassigned' value='5' accent='text-violet-600' />
+        <StatCard label='All open' value={ticketStats?.open ?? 0} accent='text-[#2563EB]' />
+        <StatCard label='Critical' value={criticalCount} accent='text-red-600' />
+        <StatCard label='Overdue' value={ticketStats?.overdue ?? 0} accent='text-amber-600' />
+        <StatCard label='Resolved tickets' value={ticketStats?.resolved ?? 0} accent='text-emerald-600' />
+        <StatCard label='Unassigned' value={unassignedCount} accent='text-violet-600' />
       </div>
       <FilterBar labels={['All', 'Open', 'In Progress', 'Resolved', 'Overdue']} placeholder='Search incidents...' />
-      <Card title='All incidents' icon={Ticket} action={<Button variant='secondary'><Download size={15} /> Export</Button>}>
+      <Card title='All incidents' icon={Ticket} action={<Button variant='secondary' onClick={onExport}><Download size={15} /> Export</Button>}>
         <DataTable headers={['ID', 'Subject', 'Requester', 'Assigned to', 'Priority', 'Status', 'SLA', 'Created']} rows={rows} onRowClick={(row) => openTicket(row[0])} renderCell={(cell, index) => index === 0 ? <b className='text-[#2563EB]'>{cell}</b> : [4, 5, 6].includes(index) ? <Badge>{cell}</Badge> : cell} />
       </Card>
     </>
   );
 }
 
-function RequestsPage({ showPage, requestRows }) {
-  const rows = requestRows?.length ? requestRows : requests;
+function RequestsPage({ showPage, requestRows, summary }) {
+  const rows = requestRows || [];
+  const openCount = rows.filter((row) => ['Open', 'In Progress'].includes(row[4])).length;
+  const pendingCount = rows.filter((row) => row[5] === 'Awaiting').length;
+  const fulfilledCount = rows.filter((row) => row[4] === 'Fulfilled').length;
 
   return (
     <>
@@ -511,10 +641,10 @@ function RequestsPage({ showPage, requestRows }) {
         <Button onClick={() => showPage('catalog')}><AppWindow size={16} /> Browse Catalog</Button>
       </PageHeader>
       <div className='mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4'>
-        <StatCard label='Open requests' value='6' accent='text-[#2563EB]' />
-        <StatCard label='Pending approval' value='3' accent='text-amber-600' />
-        <StatCard label='Fulfilled this week' value='18' accent='text-emerald-600' />
-        <StatCard label='Avg. fulfillment time' value='4.2h' accent='text-violet-600' />
+        <StatCard label='Open requests' value={openCount} accent='text-[#2563EB]' />
+        <StatCard label='Pending approval' value={pendingCount} accent='text-amber-600' />
+        <StatCard label='Fulfilled' value={fulfilledCount} accent='text-emerald-600' />
+        <StatCard label='Total requests' value={summary?.requests?.total ?? rows.length} accent='text-violet-600' />
       </div>
       <Card title='All service requests' icon={FileText}>
         <DataTable headers={['ID', 'Request type', 'Requester', 'Dept', 'Status', 'Approval', 'Due']} rows={rows} renderCell={(cell, index) => index === 0 ? <b className='text-[#2563EB]'>{cell}</b> : [4, 5].includes(index) ? <Badge>{cell}</Badge> : cell} />
@@ -524,7 +654,10 @@ function RequestsPage({ showPage, requestRows }) {
 }
 
 function ProblemsPage({ problemRows }) {
-  const rows = problemRows?.length ? problemRows : problems;
+  const rows = problemRows || [];
+  const knownErrors = rows.filter((row) => row[2] === 'Known error' || row[5] === 'Known Error').length;
+  const investigating = rows.filter((row) => String(row[2]).toLowerCase().includes('investigation')).length;
+  const resolved = rows.filter((row) => row[5] === 'Resolved' || row[5] === 'Closed').length;
 
   return (
     <>
@@ -532,10 +665,10 @@ function ProblemsPage({ problemRows }) {
         <Button><Plus size={16} /> Log Problem</Button>
       </PageHeader>
       <div className='mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4'>
-        <StatCard label='Open problems' value='5' accent='text-[#2563EB]' />
-        <StatCard label='Known errors' value='2' accent='text-red-600' />
-        <StatCard label='Under investigation' value='3' accent='text-amber-600' />
-        <StatCard label='Resolved this month' value='9' accent='text-emerald-600' />
+        <StatCard label='Open problems' value={rows.filter((row) => row[5] !== 'Resolved' && row[5] !== 'Closed').length} accent='text-[#2563EB]' />
+        <StatCard label='Known errors' value={knownErrors} accent='text-red-600' />
+        <StatCard label='Under investigation' value={investigating} accent='text-amber-600' />
+        <StatCard label='Resolved' value={resolved} accent='text-emerald-600' />
       </div>
       <Card title='Problem records' icon={Bug}>
         <DataTable headers={['ID', 'Problem', 'Root cause status', 'Linked incidents', 'Priority', 'Status', 'Owner']} rows={rows} renderCell={(cell, index) => index === 0 ? <b className='text-[#2563EB]'>{cell}</b> : [4, 5].includes(index) ? <Badge>{cell}</Badge> : cell} />
@@ -545,7 +678,10 @@ function ProblemsPage({ problemRows }) {
 }
 
 function ChangesPage({ changeRows }) {
-  const rows = changeRows?.length ? changeRows : changes;
+  const rows = changeRows || [];
+  const completed = rows.filter((row) => row[4] === 'Completed').length;
+  const failed = rows.filter((row) => row[4] === 'Failed').length;
+  const successRate = completed + failed ? Math.round((completed / (completed + failed)) * 100) : 0;
 
   return (
     <>
@@ -553,11 +689,11 @@ function ChangesPage({ changeRows }) {
         <Button><Plus size={16} /> Request Change</Button>
       </PageHeader>
       <div className='mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5'>
-        <StatCard label='Pending approval' value='4' accent='text-[#2563EB]' />
-        <StatCard label='Scheduled' value='7' accent='text-amber-600' />
-        <StatCard label='Completed this month' value='22' accent='text-emerald-600' />
-        <StatCard label='Failed / rolled back' value='1' accent='text-red-600' />
-        <StatCard label='Success rate' value='95%' accent='text-emerald-600' />
+        <StatCard label='Pending approval' value={rows.filter((row) => row[4] === 'Pending').length} accent='text-[#2563EB]' />
+        <StatCard label='Scheduled' value={rows.filter((row) => row[4] === 'Scheduled').length} accent='text-amber-600' />
+        <StatCard label='Completed' value={completed} accent='text-emerald-600' />
+        <StatCard label='Failed / rolled back' value={failed} accent='text-red-600' />
+        <StatCard label='Success rate' value={`${successRate}%`} accent='text-emerald-600' />
       </div>
       <div className='grid grid-cols-1 gap-5 xl:grid-cols-[1fr_280px]'>
         <Card title='All change requests' icon={GitBranch}>
@@ -584,42 +720,54 @@ function ChangesPage({ changeRows }) {
   );
 }
 
-function CatalogPage({ catalogRows }) {
-  const rows = catalogRows?.length ? catalogRows : catalog;
+function CatalogPage({ catalogRows, onRequest, openCatalog, user }) {
+  const rows = catalogRows || [];
 
   return (
     <>
-      <PageHeader title='Service Catalog' subtitle='Browse and request IT services and equipment' />
+      <PageHeader title='Service Catalog' subtitle='Browse and request IT services and equipment'>
+        {user?.role !== 'user' && <Button onClick={openCatalog}><Plus size={16} /> Add service</Button>}
+      </PageHeader>
       <FilterBar labels={['All services', 'Hardware', 'Software', 'Access & Accounts', 'Network', 'Onboarding']} placeholder='Search catalog...' />
       <div className='grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4'>
-        {rows.map(([title, desc, Icon, tone, sla]) => (
+        {rows.map(([title, desc, Icon, tone, sla, id, category, approvalRequired]) => (
           <article key={title} className='rounded-[13px] border border-[#e4e9f4] bg-white p-5 transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-lg hover:shadow-blue-600/10'>
             <span className={`mb-4 flex h-12 w-12 items-center justify-center rounded-xl ${tone}`}><Icon size={24} /></span>
             <h3 className='text-sm font-extrabold text-[#0F1B3D]'>{title}</h3>
             <p className='mt-2 min-h-12 text-xs leading-5 text-[#6b7fa8]'>{desc}</p>
             <p className='mt-3 flex items-center gap-1 text-xs text-[#9ca3c8]'><Clock3 size={13} /> Fulfilled in {sla}</p>
-            <button className='mt-4 w-full rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#1D4ED8]'>Request now</button>
+            <button onClick={() => onRequest({ id, title, category, approvalRequired })} className='mt-4 w-full rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#1D4ED8]'>Request now</button>
           </article>
         ))}
+        {!rows.length && <div className='rounded-[13px] border border-[#e4e9f4] bg-white p-8 text-center text-sm font-semibold text-[#9ca3c8] md:col-span-2 xl:col-span-4'>No catalog services yet</div>}
       </div>
     </>
   );
 }
 
-function AssetsPage({ assetRows }) {
-  const rows = assetRows?.length ? assetRows : assets;
+function AssetsPage({ assetRows, openAsset, user }) {
+  const rows = assetRows || [];
+  const laptopCount = rows.filter((row) => row[2] === 'Laptop').length;
+  const softwareCount = rows.filter((row) => row[2] === 'Software').length;
+  const expiringCount = rows.filter((row) => {
+    const warranty = new Date(row[7]);
+    if (Number.isNaN(warranty.getTime())) return false;
+    const days = (warranty.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+    return days >= 0 && days <= 30;
+  }).length;
+  const inactiveCount = rows.filter((row) => ['Retired', 'Under repair'].includes(row[4])).length;
 
   return (
     <>
       <PageHeader title='Asset Management' subtitle='Track and manage all IT hardware and software assets'>
-        <Button><Plus size={16} /> Add Asset</Button>
+        {user?.role !== 'user' && <Button onClick={openAsset}><Plus size={16} /> Add Asset</Button>}
       </PageHeader>
       <div className='mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5'>
-        <StatCard label='Total assets' value='248' />
-        <StatCard label='Laptops' value='112' accent='text-[#2563EB]' />
-        <StatCard label='Software licenses' value='67' accent='text-violet-600' />
-        <StatCard label='Expiring <= 30 days' value='8' accent='text-amber-600' />
-        <StatCard label='Offline / retired' value='14' accent='text-red-600' />
+        <StatCard label='Total assets' value={rows.length} />
+        <StatCard label='Laptops' value={laptopCount} accent='text-[#2563EB]' />
+        <StatCard label='Software licenses' value={softwareCount} accent='text-violet-600' />
+        <StatCard label='Expiring <= 30 days' value={expiringCount} accent='text-amber-600' />
+        <StatCard label='Repair / retired' value={inactiveCount} accent='text-red-600' />
       </div>
       <FilterBar labels={['All assets', 'Laptops', 'Desktops', 'Servers', 'Software', 'Network']} placeholder='Search by name, tag, user...' />
       <Card title='Asset inventory' icon={Laptop} action={<Button variant='secondary'><Download size={15} /> Export CSV</Button>}>
@@ -629,19 +777,22 @@ function AssetsPage({ assetRows }) {
   );
 }
 
-function KnowledgePage({ articleRows }) {
-  const rows = articleRows?.length ? articleRows : articles;
+function KnowledgePage({ articleRows, openArticle, user }) {
+  const rows = articleRows || [];
+  const publishedCount = rows.filter((row) => row[4] === 'Published').length;
+  const draftCount = rows.length - publishedCount;
+  const avgRating = rows.length ? Math.round((rows.reduce((sum, row) => sum + Number(row[3] || 0), 0) / rows.length) * 10) / 10 : 0;
 
   return (
     <>
       <PageHeader title='Knowledge Base' subtitle='Internal articles, guides, and self-service resources'>
-        <Button><Plus size={16} /> New Article</Button>
+        {user?.role !== 'user' && <Button onClick={openArticle}><Plus size={16} /> New Article</Button>}
       </PageHeader>
       <div className='mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4'>
-        <StatCard label='Total articles' value='184' accent='text-[#2563EB]' />
-        <StatCard label='Published' value='162' accent='text-emerald-600' />
-        <StatCard label='Draft / in review' value='22' accent='text-amber-600' />
-        <StatCard label='Avg. satisfaction' value='87%' accent='text-violet-600' />
+        <StatCard label='Total articles' value={rows.length} accent='text-[#2563EB]' />
+        <StatCard label='Published' value={publishedCount} accent='text-emerald-600' />
+        <StatCard label='Draft / in review' value={draftCount} accent='text-amber-600' />
+        <StatCard label='Avg. rating' value={avgRating} accent='text-violet-600' />
       </div>
       <div className='grid grid-cols-1 gap-5 xl:grid-cols-[1fr_280px]'>
         <div className='space-y-4'>
@@ -678,7 +829,7 @@ function KnowledgePage({ articleRows }) {
   );
 }
 
-function ReportsPage({ report }) {
+function ReportsPage({ report, onGenerate, generating, onExport }) {
   const categoryEntries = Object.entries(report?.byCategory || {});
   const statusEntries = Object.entries(report?.byStatus || {});
   const agentRows = report?.agentPerformance?.map((agent) => [
@@ -695,42 +846,40 @@ function ReportsPage({ report }) {
       <PageHeader title='Reports & Analytics' subtitle='Service desk performance, SLA compliance, and trends'>
         <div className='flex gap-2'>
           <select className='rounded-lg border border-[#d1d9ef] bg-white px-3 py-2 text-sm'><option>This month</option><option>Last month</option><option>Last 90 days</option></select>
-          <Button variant='secondary'><Download size={15} /> Export</Button>
+          <Button variant='secondary' onClick={onExport}><Download size={15} /> Export CSV</Button>
+          <Button onClick={onGenerate}><Activity size={15} /> {generating ? 'Generating...' : 'Generate report'}</Button>
         </div>
       </PageHeader>
       <div className='mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4'>
-        <StatCard label='Total tickets' value={report?.totalTickets ?? '312'} accent='text-[#2563EB]' trend='Live API report' />
-        <StatCard label='Resolution rate' value={`${report?.resolutionRate ?? 91}%`} accent='text-emerald-600' trend='+3%' />
-        <StatCard label='Avg. resolution time' value={report?.averageResolutionTime ?? '4.1h'} accent='text-violet-600' trend='-0.8h vs last month' />
-        <StatCard label='CSAT score' value={`${report?.csat ?? 94}%`} accent='text-emerald-600' trend='+2%' />
+        <StatCard label='Total tickets' value={report?.totalTickets ?? 0} accent='text-[#2563EB]' trend='Live API report' />
+        <StatCard label='Resolution rate' value={`${report?.resolutionRate ?? 0}%`} accent='text-emerald-600' trend='Live API report' />
+        <StatCard label='Avg. resolution time' value={report?.averageResolutionTime ?? '0h'} accent='text-violet-600' trend='Live API report' />
+        <StatCard label='CSAT score' value={`${report?.csat ?? 0}%`} accent='text-emerald-600' trend='Live API report' />
       </div>
       <div className='grid grid-cols-1 gap-5 xl:grid-cols-[1fr_320px]'>
         <Card title='Tickets by category' icon={BarChart3}>
           <div className='p-5'>
-            {(categoryEntries.length ? categoryEntries : [['Hardware', 85], ['Software', 72], ['Network', 63], ['Account access', 55], ['Other', 27]]).map(([label, value], index) => (
+            {categoryEntries.map(([label, value], index) => (
               <ProgressRow key={label} label={label} value={Math.min(Number(value) * 15, 100)} color={index === 1 ? 'bg-violet-500' : index === 2 ? 'bg-cyan-500' : index === 3 ? 'bg-emerald-500' : index === 4 ? 'bg-amber-500' : undefined} />
             ))}
+            {!categoryEntries.length && <EmptyPanel text='No ticket category data yet.' />}
           </div>
         </Card>
         <Card title='Ticket status distribution' icon={BarChart3}>
           <div className='p-6 text-center'>
             <div className='mx-auto flex h-32 w-32 items-center justify-center rounded-full border-[16px] border-blue-600 bg-white outline outline-[16px] outline-amber-400'>
-              <span><b className='block text-2xl text-[#0F1B3D]'>312</b><small className='text-[#9ca3c8]'>total</small></span>
+              <span><b className='block text-2xl text-[#0F1B3D]'>{report?.totalTickets ?? 0}</b><small className='text-[#9ca3c8]'>total</small></span>
             </div>
             <div className='mt-6 space-y-2 text-left text-sm text-slate-600'>
-              {(statusEntries.length ? statusEntries : [['Open', '41%'], ['In Progress', '20%'], ['Resolved', '39%']]).map(([label, value], index) => (
+              {statusEntries.map(([label, value], index) => (
                 <p key={label}><span className={`mr-2 inline-block h-3 w-3 rounded-full ${index === 1 ? 'bg-amber-500' : index === 2 ? 'bg-emerald-500' : 'bg-[#2563EB]'}`} />{label} - {value}</p>
               ))}
+              {!statusEntries.length && <p className='text-center font-semibold text-[#9ca3c8]'>No status data yet.</p>}
             </div>
           </div>
         </Card>
         <Card title='Agent performance' icon={Users}>
-          <DataTable headers={['Agent', 'Assigned', 'Resolved', 'Avg. res. time', 'CSAT', 'SLA met']} rows={agentRows || [
-            ['Sarah K.', '48', '44', '3.2h', '97%', '95%'],
-            ['Michael O.', '61', '55', '4.8h', '92%', '88%'],
-            ['Amaka A.', '52', '49', '2.9h', '95%', '93%'],
-            ['Tunde J.', '39', '33', '5.6h', '84%', '79%']
-          ]} renderCell={(cell, index) => index === 0 ? <span className='flex items-center gap-2'><Avatar name={cell} /> {cell}</span> : index === 4 ? <b className='text-emerald-600'>{cell}</b> : cell} />
+          <DataTable headers={['Agent', 'Assigned', 'Resolved', 'Avg. res. time', 'CSAT', 'SLA met']} rows={agentRows || []} renderCell={(cell, index) => index === 0 ? <span className='flex items-center gap-2'><Avatar name={cell} /> {cell}</span> : index === 4 ? <b className='text-emerald-600'>{cell}</b> : cell} />
         </Card>
         <Card title='SLA compliance by priority' icon={ShieldCheck}>
           <div className='p-5'>
@@ -840,16 +989,19 @@ function NewTicketModal({ open, onClose, onCreated }) {
     if (!form.title.trim()) return;
     setSaving(true);
     try {
-      await api.post('/tickets', {
+      const { data } = await api.post('/tickets', {
         title: form.title,
         description: form.description || form.title,
         category: form.category,
         priority
       });
+      toast.success(`Ticket ${data.ticketNumber || ''} submitted successfully.`.trim());
       await onCreated?.();
       onClose();
       setForm({ requester: '', category: 'Hardware', title: '', description: '', assignedTo: '', dueDate: '' });
       setPriority('Medium');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Ticket submission failed.');
     } finally {
       setSaving(false);
     }
@@ -904,21 +1056,21 @@ function Field({ label, as, options, type = 'text', placeholder }) {
   );
 }
 
-function TicketDetailPage({ showPage, ticketId = 'INC-2847' }) {
+function TicketDetailPage({ showPage, ticketId, users, onUpdated }) {
   const [tab, setTab] = useState('conversation');
   const [ticket, setTicket] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-
-  const fallbackMessages = [
-    ['John Adeyemi', 'Requester', 'JA', 'blue', 'May 10 - 9:14 AM', 'My laptop screen started flickering after installing the Windows 11 update yesterday. The display shows horizontal artifacts and occasionally goes black every few minutes. I tried restarting and rolling back the display driver, but the issue persists.'],
-    ['System', 'Automation', 'SYS', 'dark', 'May 10 - 9:15 AM', 'Ticket assigned to Sarah K. from the Hardware team. SLA: first response within 2h and resolution within 8h.'],
-    ['Sarah K.', 'Support agent', 'SK', 'dark', 'May 10 - 10:58 AM', 'Hi John, thanks for the detailed report. This is a known issue with KB5034123 on certain Dell XPS models. Please update the display driver, uninstall the update if needed, then restart and monitor for 30 minutes.'],
-    ['John Adeyemi', 'Requester', 'JA', 'blue', 'May 11 - 8:47 AM', 'Thanks Sarah. Uninstalling the update reduced the frequency, but it still flickers every 30 minutes. Should I bring the laptop in for inspection?'],
-    ['Sarah K.', 'Support agent', 'SK', 'dark', 'May 11 - 10:12 AM', 'Yes, please bring it to IT Room 204 tomorrow between 9am and 12pm. We will run diagnostics and check the display cable and panel.']
-  ];
+  const [savingTicket, setSavingTicket] = useState(false);
 
   const loadTicket = async () => {
+    if (!ticketId) {
+      setTicket(null);
+      setLoading(false);
+      setError('Select a ticket from the incidents page to view its details.');
+      return;
+    }
+
     setLoading(true);
     setError('');
 
@@ -936,6 +1088,26 @@ function TicketDetailPage({ showPage, ticketId = 'INC-2847' }) {
     loadTicket();
   }, [ticketId]);
 
+  const updateTicket = async (updates) => {
+    if (!ticket?._id) return;
+    setSavingTicket(true);
+    try {
+      const { data } = await api.patch(`/tickets/${ticket._id}`, updates);
+      setTicket(data);
+      await onUpdated?.();
+      toast.success(updates.assignedTo !== undefined
+        ? 'Ticket assigned successfully.'
+        : updates.status === 'Resolved'
+          ? 'Ticket resolved successfully.'
+          : 'Ticket status updated successfully.');
+          await loadTicket();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Could not update this ticket.');
+    } finally {
+      setSavingTicket(false);
+    }
+  };
+
   const messages = ticket?.comments?.length
     ? ticket.comments.map((comment) => [
       comment.author?.name || 'System',
@@ -945,12 +1117,9 @@ function TicketDetailPage({ showPage, ticketId = 'INC-2847' }) {
       comment.createdAt ? new Date(comment.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '',
       comment.message
     ])
-    : fallbackMessages;
+    : [];
 
-  const notes = [
-    ['Sarah K.', 'SK', 'May 10 - 11:05 AM', 'This is the 3rd ticket this week related to KB5034123 on Dell XPS laptops. We may need to create a problem record and notify Dell XPS users.'],
-    ['Michael O.', 'MO', 'May 10 - 2:30 PM', 'Confirmed on 2 other tickets. I will create PRB-0015 and link this ticket. Dell says a hotfix driver is expected within 48-72 hours.']
-  ];
+  const notes = [];
 
   return (
     <>
@@ -972,13 +1141,13 @@ function TicketDetailPage({ showPage, ticketId = 'INC-2847' }) {
         <div>
           <section className='mb-4 rounded-[13px] border border-[#e4e9f4] bg-white p-6'>
             <div className='mb-3 flex flex-wrap items-center gap-2 text-xs font-extrabold text-[#2563EB]'>
-              {ticket?.ticketNumber || ticketId} <Badge>{ticket?.status || 'In Progress'}</Badge><Badge>{ticket?.priority || 'High'} priority</Badge>
+              {ticket?.ticketNumber || ticketId || 'Ticket'} {ticket?.status && <Badge>{ticket.status}</Badge>}{ticket?.priority && <Badge>{ticket.priority} priority</Badge>}
             </div>
-            <h1 className='max-w-4xl text-xl font-extrabold leading-snug text-[#0F1B3D]'>{ticket?.title || 'Laptop screen flickering and display artifacts after Windows update'}</h1>
+            <h1 className='max-w-4xl text-xl font-extrabold leading-snug text-[#0F1B3D]'>{ticket?.title || 'No ticket selected'}</h1>
             <div className='mt-4 flex flex-wrap gap-4 text-xs font-medium text-[#6b7fa8]'>
-              <span className='flex items-center gap-1'><Laptop size={15} /> {ticket?.category || 'Hardware'}</span>
-              <span className='flex items-center gap-1'><Users size={15} /> {ticket?.createdBy?.name || 'John Adeyemi'}</span>
-              <span className='flex items-center gap-1'><CalendarDays size={15} /> Opened {ticket?.createdAt ? new Date(ticket.createdAt).toLocaleDateString() : 'May 10, 2026'}</span>
+              <span className='flex items-center gap-1'><Laptop size={15} /> {ticket?.category || 'Uncategorized'}</span>
+              <span className='flex items-center gap-1'><Users size={15} /> {ticket?.createdBy?.name || 'Requester unavailable'}</span>
+              <span className='flex items-center gap-1'><CalendarDays size={15} /> Opened {ticket?.createdAt ? new Date(ticket.createdAt).toLocaleDateString() : 'Not available'}</span>
               <span className='flex items-center gap-1'><CheckCircle2 size={15} /> Assigned to {ticket?.assignedTo?.name || 'Unassigned'}</span>
               <span className='flex items-center gap-1 font-extrabold text-amber-600'><Clock3 size={15} /> SLA: {ticket?.sla?.resolutionDue || 'On track'}</span>
             </div>
@@ -1021,8 +1190,7 @@ function TicketDetailPage({ showPage, ticketId = 'INC-2847' }) {
             )}
             {tab === 'linked' && (
               <div className='space-y-4 p-5'>
-                <LinkedItem tone='amber' icon={Bug} title='KB5034123 causes display flickering on Dell XPS laptops' meta='PRB-0015 - 4 incidents linked - Under investigation' badge='Known error' />
-                <LinkedItem tone='blue' icon={Laptop} title='Dell XPS 15 (2024) - AST-0441' meta='Assigned to John Adeyemi - Floor 3, Finance - Warranty: Jan 2027' badge='In use' />
+                <EmptyPanel text='No linked items yet.' />
               </div>
             )}
           </Card>
@@ -1030,7 +1198,7 @@ function TicketDetailPage({ showPage, ticketId = 'INC-2847' }) {
           <ReplyBox ticketId={ticketId} onSent={loadTicket} />
         </div>
 
-        <TicketSidebar ticket={ticket} />
+        <TicketSidebar ticket={ticket} users={users} onUpdate={updateTicket} saving={savingTicket} />
       </div>
     </>
   );
@@ -1050,6 +1218,7 @@ function Thread({ messages, internal = false }) {
           <p className={`ml-11 rounded-xl p-4 text-sm leading-7 ${internal ? 'border-l-4 border-amber-400 bg-amber-50 text-slate-700' : role === 'Support agent' ? 'border-l-4 border-[#2563EB] bg-[#F4F8FF] text-slate-700' : role === 'Automation' ? 'bg-slate-100 italic text-[#6b7fa8]' : 'text-slate-700'}`}>{body}</p>
         </article>
       ))}
+      {!messages.length && <EmptyPanel text={internal ? 'No internal notes yet.' : 'No conversation messages yet.'} />}
     </div>
   );
 }
@@ -1067,6 +1236,9 @@ function ReplyBox({ ticketId, onSent }) {
       await api.post(`/tickets/${ticketId}/comments`, { message: draft });
       setDraft('');
       await onSent?.();
+      toast.success(mode === 'note' ? 'Internal note added successfully.' : 'Reply sent successfully.');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not send your message.');
     } finally {
       setSending(false);
     }
@@ -1131,20 +1303,50 @@ function InfoRow({ label, value, badge }) {
   );
 }
 
-function TicketSidebar({ ticket }) {
+function TicketSidebar({ ticket, users, onUpdate, saving }) {
+  const [status, setStatus] = useState(ticket?.status || 'Open');
+  const [assigneeId, setAssigneeId] = useState(ticket?.assignedTo?._id || '');
+
+  useEffect(() => {
+    setStatus(ticket?.status || 'Open');
+    setAssigneeId(ticket?.assignedTo?._id || '');
+  }, [ticket]);
+
   return (
     <aside>
       <InfoCard title='Ticket details'>
-        <InfoRow label='Status' value={ticket?.status || 'In Progress'} badge />
-        <InfoRow label='Priority' value={ticket?.priority || 'High'} badge />
-        <InfoRow label='Category' value={ticket?.category || 'Hardware'} />
-        <InfoRow label='Sub-category' value='Laptop / Display' />
+        <InfoRow label='Status' value={ticket?.status || 'Not available'} badge />
+        <InfoRow label='Priority' value={ticket?.priority || 'Not available'} badge />
+        <InfoRow label='Category' value={ticket?.category || 'Not available'} />
+        <InfoRow label='Sub-category' value='Not available' />
         <InfoRow label='Assigned to' value={ticket?.assignedTo?.name || 'Unassigned'} />
-        <InfoRow label='Team' value={ticket?.category || 'Hardware'} />
-        <InfoRow label='Requester' value={ticket?.createdBy?.name || 'John Adeyemi'} />
-        <InfoRow label='Department' value={ticket?.createdBy?.department || 'Finance'} />
+        <InfoRow label='Team' value={ticket?.category || 'Not available'} />
+        <InfoRow label='Requester' value={ticket?.createdBy?.name || 'Not available'} />
+        <InfoRow label='Department' value={ticket?.createdBy?.department || 'Not available'} />
         <InfoRow label='Source' value='Portal' />
       </InfoCard>
+      {['admin', 'staff'].includes(getStoredUser()?.role) && ticket && (
+        <section className='mb-4 rounded-[13px] border border-[#e4e9f4] bg-white p-4'>
+          <h3 className='mb-3 text-[11px] font-extrabold uppercase tracking-wide text-[#9ca3c8]'>Ticket actions</h3>
+          <label className='mb-3 block space-y-1 text-xs font-bold text-slate-700'>Assign to
+            <select className='w-full rounded-lg border border-[#d1d9ef] bg-white px-3 py-2 text-sm' value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)}>
+              <option value=''>Unassigned</option>
+              {(users || []).filter((agent) => ['admin', 'staff'].includes(agent.role)).map((agent) => <option key={agent._id} value={agent._id}>{agent.name}</option>)}
+            </select>
+          </label>
+          <Button onClick={() => onUpdate({ assignedTo: assigneeId || null })}>
+            <UserPlus size={15} /> {saving ? 'Saving...' : 'Assign ticket'}
+          </Button>
+          <label className='mb-3 mt-4 block space-y-1 text-xs font-bold text-slate-700'>Update status
+            <select className='w-full rounded-lg border border-[#d1d9ef] bg-white px-3 py-2 text-sm' value={status} onChange={(event) => setStatus(event.target.value)}>
+              {['Open', 'Assigned', 'In Progress', 'Resolved', 'Closed'].map((item) => <option key={item}>{item}</option>)}
+            </select>
+          </label>
+          <Button variant='secondary' onClick={() => onUpdate({ status })}>
+            <CheckCircle2 size={15} /> {saving ? 'Saving...' : status === 'Resolved' ? 'Resolve ticket' : 'Save status'}
+          </Button>
+        </section>
+      )}
       <InfoCard title='SLA status'>
         <InfoRow label='First response' value='Met (1h 44m)' />
         <InfoRow label='Resolution due' value='2h remaining' />
@@ -1164,13 +1366,17 @@ function TicketSidebar({ ticket }) {
   );
 }
 
-function SelfServicePortalPage({ showPage }) {
+function SelfServicePortalPage({ showPage, user, ticketRows, articleRows, openTicketModal }) {
+  const firstName = user?.name?.split(' ')[0] || 'there';
+  const portalTickets = (ticketRows || []).slice(0, 3);
+  const recommendedArticles = (articleRows || []).slice(0, 3);
+
   return (
     <>
       <section className='relative mb-7 overflow-hidden rounded-2xl bg-gradient-to-br from-[#0F1B3D] via-[#162252] to-[#1a2f6e] px-8 py-12 text-center'>
         <div className='absolute left-1/2 top-0 h-64 w-[520px] -translate-x-1/2 rounded-full bg-blue-400/20 blur-3xl' />
         <div className='relative'>
-          <h1 className='text-4xl font-extrabold text-white'>Hi John, how can we <span className='text-blue-300'>help you?</span></h1>
+          <h1 className='text-4xl font-extrabold text-white'>Hi {firstName}, how can we <span className='text-blue-300'>help you?</span></h1>
           <p className='mt-3 text-sm text-blue-100/80'>Search articles, browse the service catalog, or track your existing tickets - all in one place.</p>
           <div className='mx-auto mt-7 flex max-w-xl items-center gap-3 rounded-xl bg-white p-2 pl-5 shadow-2xl shadow-slate-950/30'>
             <Search size={20} className='text-[#9ca3bb]' />
@@ -1189,14 +1395,14 @@ function SelfServicePortalPage({ showPage }) {
       <p className='mb-3 text-xs font-extrabold uppercase tracking-wider text-[#9ca3c8]'>What do you need?</p>
       <div className='mb-7 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6'>
         {[
-          ['Report an issue', 'Something not working? Log an IT ticket.', Plus, 'bg-blue-50 text-[#2563EB]', 'ticketDetail'],
+          ['Report an issue', 'Something not working? Log an IT ticket.', Plus, 'bg-blue-50 text-[#2563EB]', 'newTicket'],
           ['Request a service', 'Laptop, software license, access, and more.', AppWindow, 'bg-violet-50 text-violet-600', 'catalog'],
           ['Browse guides', 'Step-by-step articles and how-to guides.', BookOpen, 'bg-emerald-50 text-emerald-600', 'kb'],
           ['My requests', 'Track and update your open tickets.', List, 'bg-amber-50 text-amber-600', 'requests'],
-          ['Reset password', 'Unlock account or reset your password.', ShieldCheck, 'bg-cyan-50 text-cyan-700', 'ticketDetail'],
-          ['Report outage', 'System down or widespread issue.', AlertTriangle, 'bg-red-50 text-red-600', 'ticketDetail']
+          ['Reset password', 'Unlock account or reset your password.', ShieldCheck, 'bg-cyan-50 text-cyan-700', 'forgotPassword'],
+          ['Report outage', 'System down or widespread issue.', AlertTriangle, 'bg-red-50 text-red-600', 'newTicket']
         ].map(([title, desc, Icon, tone, target]) => (
-          <button key={title} onClick={() => showPage(target)} className='rounded-[13px] border border-[#e4e9f4] bg-white p-5 text-center transition hover:-translate-y-0.5 hover:border-[#2563EB] hover:shadow-lg hover:shadow-blue-600/10'>
+          <button key={title} onClick={() => target === 'newTicket' ? openTicketModal() : target === 'forgotPassword' ? window.location.assign('/forgot-password') : showPage(target)} className='rounded-[13px] border border-[#e4e9f4] bg-white p-5 text-center transition hover:-translate-y-0.5 hover:border-[#2563EB] hover:shadow-lg hover:shadow-blue-600/10'>
             <span className={`mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl ${tone}`}><Icon size={23} /></span>
             <h4 className='text-sm font-extrabold text-[#0F1B3D]'>{title}</h4>
             <p className='mt-1 text-xs text-[#6b7fa8]'>{desc}</p>
@@ -1207,14 +1413,16 @@ function SelfServicePortalPage({ showPage }) {
       <div className='grid grid-cols-1 gap-5 xl:grid-cols-[1fr_300px]'>
         <div className='space-y-4'>
           <Card title='My open tickets' icon={Ticket} action={<Button variant='secondary'>View all</Button>}>
-            <PortalTicket icon={Laptop} title='Laptop screen flickering after Windows update' meta='INC-2847 - Hardware - Assigned to Sarah K.' badge='In Progress' />
-            <PortalTicket icon={AppWindow} title='New laptop request - Dell XPS 15' meta='SR-0192 - Awaiting manager approval' badge='Awaiting approval' />
-            <PortalTicket icon={Wifi} title='VPN connection dropping at home office' meta='INC-2801 - Resolved by Michael O.' badge='Resolved' />
+            {portalTickets.map(([id, subject, , assignee, , status]) => (
+              <PortalTicket key={id} icon={Laptop} title={subject} meta={`${id} - Assigned to ${assignee}`} badge={status} />
+            ))}
+            {!portalTickets.length && <EmptyPanel text='You have not created any tickets yet.' />}
           </Card>
           <Card title='Recommended for you' icon={Flame}>
-            <PortalTicket icon={BookOpen} title='How to fix screen flickering on Dell XPS' meta='Hardware - 5 min read - 1,248 views' />
-            <PortalTicket icon={BookOpen} title='Requesting a software license - step by step' meta='Software - 3 min read - 891 views' />
-            <PortalTicket icon={BookOpen} title='Connecting to company VPN from home' meta='Network - 4 min read - 2,814 views' />
+            {recommendedArticles.map(([title, category, views, rating]) => (
+              <PortalTicket key={title} icon={BookOpen} title={title} meta={`${category} - ${views} views - ${rating} rating`} />
+            ))}
+            {!recommendedArticles.length && <EmptyPanel text='No knowledge articles have been published yet.' />}
           </Card>
         </div>
         <div className='space-y-4'>
@@ -1233,6 +1441,10 @@ function SelfServicePortalPage({ showPage }) {
       </div>
     </>
   );
+}
+
+function EmptyPanel({ text }) {
+  return <div className='px-4 py-6 text-center text-sm font-semibold text-[#9ca3c8]'>{text}</div>;
 }
 
 function PortalTicket({ icon: Icon, title, meta, badge }) {
@@ -1256,9 +1468,10 @@ function Announcement({ title, label, body, danger = false }) {
 }
 
 function UsersRolesPage({ openInvite, users }) {
-  const userItems = users?.length
-    ? users.map((user) => [user.name, user.email, initials(user.name), user.role === 'admin' ? 'Admin' : user.role === 'staff' ? 'Agent' : 'Requester', user.isActive === false ? 'Inactive' : 'Active', user.isActive !== false])
-    : null;
+  const userItems = (users || []).map((user) => [user.name, user.email, initials(user.name), user.role === 'admin' ? 'Admin' : user.role === 'staff' ? 'Agent' : 'Requester', user.isActive === false ? 'Inactive' : 'Active', user.isActive !== false]);
+  const adminCount = (users || []).filter((user) => user.role === 'admin').length;
+  const agentCount = (users || []).filter((user) => user.role === 'staff').length;
+  const requesterCount = (users || []).filter((user) => user.role === 'user').length;
 
   return (
     <>
@@ -1266,11 +1479,11 @@ function UsersRolesPage({ openInvite, users }) {
         <Button onClick={openInvite}><UserPlus size={16} /> Invite user</Button>
       </PageHeader>
       <div className='mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5'>
-        <StatCard label='Total users' value='84' />
-        <StatCard label='Admins' value='3' accent='text-violet-600' />
-        <StatCard label='Agents' value='12' accent='text-[#2563EB]' />
-        <StatCard label='Requesters' value='69' accent='text-emerald-600' />
-        <StatCard label='Pending invites' value='4' accent='text-amber-600' />
+        <StatCard label='Total users' value={users?.length || 0} />
+        <StatCard label='Admins' value={adminCount} accent='text-violet-600' />
+        <StatCard label='Agents' value={agentCount} accent='text-[#2563EB]' />
+        <StatCard label='Requesters' value={requesterCount} accent='text-emerald-600' />
+        <StatCard label='Pending invites' value='0' accent='text-amber-600' />
       </div>
       <div className='grid grid-cols-1 gap-5 xl:grid-cols-[1fr_300px]'>
         <div className='space-y-4'>
@@ -1279,14 +1492,8 @@ function UsersRolesPage({ openInvite, users }) {
               {['All roles', 'Admins', 'Agents', 'Viewers'].map((tab, index) => <button key={tab} className={`rounded-full border px-4 py-1.5 text-xs font-bold ${index === 0 ? 'border-[#2563EB] bg-[#2563EB] text-white' : 'border-[#e4e9f4] text-[#6b7fa8]'}`}>{tab}</button>)}
             </div>
             <div className='divide-y divide-[#f3f5fb]'>
-              {(userItems || [
-                ['IT Director', 'itdirector@company.com', 'IT', 'Admin', 'Active', true],
-                ['Sarah K.', 'sarah.k@company.com', 'SK', 'Agent', 'Active', true],
-                ['Michael O.', 'michael.o@company.com', 'MO', 'Agent', 'Active', true],
-                ['Amaka A.', 'amaka.a@company.com', 'AA', 'Agent', 'Active', true],
-                ['Tunde J.', 'tunde.j@company.com', 'TJ', 'Agent', 'Away', false],
-                ['Ngozi G.', 'ngozi.g@company.com', 'NG', 'Agent', 'Pending', false]
-              ]).map((person) => <UserRow key={person[1]} person={person} />)}
+              {userItems.map((person) => <UserRow key={person[1]} person={person} />)}
+              {!userItems.length && <EmptyPanel text='No users loaded yet.' />}
             </div>
           </Card>
           <Card title='Teams' icon={Users} action={<Button variant='secondary'><Plus size={14} /> Add team</Button>}>
@@ -1397,8 +1604,10 @@ function AutomationRule({ rule }) {
     try {
       const { data } = await api.patch(`/automation/${id}/toggle`);
       setOn(data.active);
-    } catch {
+      toast.success(`Automation rule ${data.active ? 'enabled' : 'disabled'} successfully.`);
+    } catch (error) {
       setOn(!nextValue);
+      toast.error(error.response?.data?.message || 'Could not update the automation rule.');
     } finally {
       setSaving(false);
     }
@@ -1432,27 +1641,201 @@ function AutomationStat({ title, value, sub, tone = 'text-[#0F1B3D]' }) {
   return <div className='rounded-[13px] border border-[#e4e9f4] bg-white p-5'><p className='text-xs font-extrabold uppercase tracking-wide text-[#6b7fa8]'>{title}</p><p className={`mt-2 text-4xl font-extrabold ${tone}`}>{value}</p><p className='mt-1 text-xs text-[#9ca3c8]'>{sub}</p></div>;
 }
 
+function ServiceRequestModal({ item, onClose, onCreated }) {
+  const [form, setForm] = useState({ title: '', department: '', dueDate: '' });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (item) setForm({ title: item.title, department: '', dueDate: '' });
+  }, [item]);
+
+  if (!item) return null;
+
+  const submit = async () => {
+    if (!form.title.trim()) return;
+    setSaving(true);
+    try {
+      await api.post('/requests', {
+        title: form.title,
+        department: form.department || 'General',
+        catalogItem: item.id,
+        approvalStatus: item.approvalRequired ? 'Awaiting' : 'Not Required',
+        status: item.approvalRequired ? 'Pending' : 'Open',
+        dueDate: form.dueDate || undefined
+      });
+      toast.success('Service request submitted successfully.');
+      await onCreated?.();
+      onClose();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Service request submission failed.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ModalShell title='Request service' icon={AppWindow} onClose={onClose}>
+      <div className='rounded-xl bg-[#F4F8FF] p-4 text-sm text-slate-700'>
+        <b className='block text-[#0F1B3D]'>{item.title}</b>
+        <span className='text-xs text-[#6b7fa8]'>{item.category} service</span>
+      </div>
+      <label className='mt-4 block space-y-1 text-xs font-extrabold text-slate-700'>Request title<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
+      <div className='mt-4 grid grid-cols-1 gap-4 md:grid-cols-2'>
+        <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Department<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' placeholder='e.g. Finance' value={form.department} onChange={(event) => setForm({ ...form, department: event.target.value })} /></label>
+        <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Needed by<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' type='date' value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} /></label>
+      </div>
+      <ModalActions onClose={onClose} onAction={submit} action={saving ? 'Submitting...' : 'Submit request'} icon={Send} />
+    </ModalShell>
+  );
+}
+
+function CatalogModal({ open, onClose, onCreated }) {
+  const [form, setForm] = useState({ name: '', category: 'Hardware', description: '', sla: '1 business day', approvalRequired: false });
+  const [saving, setSaving] = useState(false);
+
+  if (!open) return null;
+
+  const submit = async () => {
+    if (!form.name.trim() || !form.description.trim()) return;
+    setSaving(true);
+    try {
+      await api.post('/catalog', form);
+      toast.success('Catalog service added successfully.');
+      await onCreated?.();
+      onClose();
+      setForm({ name: '', category: 'Hardware', description: '', sla: '1 business day', approvalRequired: false });
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not add the catalog service.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ModalShell title='Add catalog service' icon={AppWindow} onClose={onClose}>
+      <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Service name<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' placeholder='Laptop request' value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
+      <div className='mt-4 grid grid-cols-1 gap-4 md:grid-cols-2'>
+        <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Category<select className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}><option>Hardware</option><option>Software</option><option>Network</option><option>Account Access</option><option>Other</option></select></label>
+        <label className='block space-y-1 text-xs font-extrabold text-slate-700'>SLA<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' value={form.sla} onChange={(event) => setForm({ ...form, sla: event.target.value })} /></label>
+      </div>
+      <label className='mt-4 block space-y-1 text-xs font-extrabold text-slate-700'>Description<textarea className='min-h-24 w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
+      <label className='mt-4 flex items-center gap-2 text-sm font-bold text-slate-700'><input type='checkbox' checked={form.approvalRequired} onChange={(event) => setForm({ ...form, approvalRequired: event.target.checked })} /> Requires approval</label>
+      <ModalActions onClose={onClose} onAction={submit} action={saving ? 'Saving...' : 'Save service'} icon={Check} />
+    </ModalShell>
+  );
+}
+
+function AssetModal({ open, onClose, onCreated }) {
+  const [form, setForm] = useState({ assetTag: '', name: '', type: 'Laptop', assignedTo: 'Unassigned', status: 'In stock', location: '', purchasedAt: '', warrantyUntil: '' });
+  const [saving, setSaving] = useState(false);
+
+  if (!open) return null;
+
+  const submit = async () => {
+    if (!form.assetTag.trim() || !form.name.trim()) return;
+    setSaving(true);
+    try {
+      await api.post('/assets', {
+        ...form,
+        purchasedAt: form.purchasedAt || undefined,
+        warrantyUntil: form.warrantyUntil || undefined
+      });
+      toast.success('Asset added successfully.');
+      await onCreated?.();
+      onClose();
+      setForm({ assetTag: '', name: '', type: 'Laptop', assignedTo: 'Unassigned', status: 'In stock', location: '', purchasedAt: '', warrantyUntil: '' });
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not save the asset.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ModalShell title='Add asset' icon={Laptop} onClose={onClose}>
+      <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+        <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Asset tag<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' placeholder='AST-0001' value={form.assetTag} onChange={(event) => setForm({ ...form, assetTag: event.target.value })} /></label>
+        <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Name / model<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' placeholder='Dell Latitude 5440' value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label>
+        <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Type<select className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value })}><option>Laptop</option><option>Desktop</option><option>Printer</option><option>Server</option><option>Network</option><option>Software</option><option>Other</option></select></label>
+        <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Status<select className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}><option>In stock</option><option>In use</option><option>Active</option><option>Under repair</option><option>Retired</option></select></label>
+        <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Assigned to<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' value={form.assignedTo} onChange={(event) => setForm({ ...form, assignedTo: event.target.value })} /></label>
+        <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Location<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} /></label>
+        <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Purchased<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' type='date' value={form.purchasedAt} onChange={(event) => setForm({ ...form, purchasedAt: event.target.value })} /></label>
+        <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Warranty until<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' type='date' value={form.warrantyUntil} onChange={(event) => setForm({ ...form, warrantyUntil: event.target.value })} /></label>
+      </div>
+      <ModalActions onClose={onClose} onAction={submit} action={saving ? 'Saving...' : 'Save asset'} icon={Check} />
+    </ModalShell>
+  );
+}
+
+function ArticleModal({ open, onClose, onCreated }) {
+  const [form, setForm] = useState({ title: '', category: 'General', content: '', tags: '' });
+  const [saving, setSaving] = useState(false);
+
+  if (!open) return null;
+
+  const submit = async () => {
+    if (!form.title.trim() || !form.content.trim()) return;
+    setSaving(true);
+    try {
+      await api.post('/knowledge', {
+        title: form.title,
+        category: form.category,
+        content: form.content,
+        tags: form.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+        published: true
+      });
+      toast.success('Knowledge article published successfully.');
+      await onCreated?.();
+      onClose();
+      setForm({ title: '', category: 'General', content: '', tags: '' });
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not publish the article.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ModalShell title='New knowledge article' icon={BookOpen} onClose={onClose}>
+      <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Title<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
+      <div className='mt-4 grid grid-cols-1 gap-4 md:grid-cols-2'>
+        <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Category<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} /></label>
+        <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Tags<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' placeholder='vpn, password, email' value={form.tags} onChange={(event) => setForm({ ...form, tags: event.target.value })} /></label>
+      </div>
+      <label className='mt-4 block space-y-1 text-xs font-extrabold text-slate-700'>Content<textarea className='min-h-40 w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} /></label>
+      <ModalActions onClose={onClose} onAction={submit} action={saving ? 'Publishing...' : 'Publish article'} icon={Check} />
+    </ModalShell>
+  );
+}
+
 function InviteModal({ open, onClose, onCreated }) {
-  const [form, setForm] = useState({ firstName: '', lastName: '', email: '', role: 'staff', department: 'Hardware', note: '' });
+  const [form, setForm] = useState({ firstName: '', lastName: '', email: '', password: '', role: 'staff', department: 'Hardware', note: '' });
   const [saving, setSaving] = useState(false);
 
   if (!open) return null;
 
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const submit = async () => {
-    if (!form.email.trim()) return;
+    if (!form.email.trim() || form.password.length < 12) {
+      toast.error('Enter an email and a temporary password with at least 12 characters.');
+      return;
+    }
     setSaving(true);
     try {
-      await api.post('/auth/register', {
+      await api.post('/auth/invite', {
         name: `${form.firstName} ${form.lastName}`.trim() || form.email,
         email: form.email,
-        password: 'password123',
+        password: form.password,
         role: form.role,
         department: form.department
       });
+      toast.success('User invited successfully.');
       await onCreated?.();
       onClose();
-      setForm({ firstName: '', lastName: '', email: '', role: 'staff', department: 'Hardware', note: '' });
+      setForm({ firstName: '', lastName: '', email: '', password: '', role: 'staff', department: 'Hardware', note: '' });
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not invite this user.');
     } finally {
       setSaving(false);
     }
@@ -1465,6 +1848,7 @@ function InviteModal({ open, onClose, onCreated }) {
         <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Last name<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' placeholder='e.g. Adeyemi' value={form.lastName} onChange={(event) => update('lastName', event.target.value)} /></label>
       </div>
       <label className='mt-4 block space-y-1 text-xs font-extrabold text-slate-700'>Work email<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' type='email' placeholder='ngozi@company.com' value={form.email} onChange={(event) => update('email', event.target.value)} /></label>
+      <label className='mt-4 block space-y-1 text-xs font-extrabold text-slate-700'>Temporary password (12+ characters)<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' type='password' autoComplete='new-password' value={form.password} onChange={(event) => update('password', event.target.value)} /></label>
       <div className='mt-4 grid grid-cols-1 gap-4 md:grid-cols-2'>
         <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Role<select className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' value={form.role} onChange={(event) => update('role', event.target.value)}><option value='staff'>Agent</option><option value='admin'>Administrator</option><option value='user'>Viewer / Requester</option></select></label>
         <label className='block space-y-1 text-xs font-extrabold text-slate-700'>Assign to team<select className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none focus:border-[#2563EB]' value={form.department} onChange={(event) => update('department', event.target.value)}><option>Hardware</option><option>Network</option><option>Software</option><option>Account Access</option></select></label>
@@ -1493,9 +1877,12 @@ function RuleModal({ open, onClose, onCreated }) {
         actions: ['Assign to agent'],
         active: form.active
       });
+      toast.success('Automation rule created successfully.');
       await onCreated?.();
       onClose();
       setForm({ name: '', description: '', active: true });
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not save the automation rule.');
     } finally {
       setSaving(false);
     }
@@ -1532,11 +1919,11 @@ function ModalActions({ onClose, onAction, action, icon: Icon }) {
   );
 }
 
-function ChatWidget() {
+function ChatWidget({ user }) {
+  const firstName = user?.name?.split(' ')[0] || 'there';
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([
-    ['bot', "Hi John, I'm your IT support assistant. How can I help you today?"],
-    ['bot', 'I noticed you have an open ticket INC-2847 about your laptop screen. Would you like an update on that?']
+    ['bot', `Hi ${firstName}, I'm your IT support assistant. How can I help you today?`]
   ]);
   const [draft, setDraft] = useState('');
 
@@ -1561,7 +1948,7 @@ function ChatWidget() {
             <button onClick={() => setOpen(false)} className='ml-auto text-blue-100/60 hover:text-white'><X size={18} /></button>
           </div>
           <div className='flex-1 space-y-3 overflow-y-auto bg-[#F8FAFF] p-4'>
-            {messages.map(([type, text], index) => <ChatMessage key={index} type={type} text={text} />)}
+            {messages.map(([type, text], index) => <ChatMessage key={index} type={type} text={text} user={user} />)}
           </div>
           <div className='flex flex-wrap gap-2 px-3 py-2'>
             {['Update on INC-2847', 'New ticket', 'Talk to agent', 'Reset password'].map((item) => <button key={item} onClick={() => send(item)} className='rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-[#2563EB] hover:bg-[#2563EB] hover:text-white'>{item}</button>)}
@@ -1585,11 +1972,11 @@ function chatReply(message) {
   return 'Thanks for your message. I can create a support ticket for this issue so an agent can follow up.';
 }
 
-function ChatMessage({ type, text }) {
+function ChatMessage({ type, text, user }) {
   const isUser = type === 'user';
   return (
     <div className={`flex items-end gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
-      <span className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${isUser ? 'bg-[#2563EB] text-white' : 'bg-[#0F1B3D] text-blue-300'}`}>{isUser ? 'JA' : <Bot size={15} />}</span>
+      <span className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${isUser ? 'bg-[#2563EB] text-white' : 'bg-[#0F1B3D] text-blue-300'}`}>{isUser ? initials(user?.name || 'User') : <Bot size={15} />}</span>
       <div className={`max-w-[240px] rounded-xl px-4 py-3 text-sm leading-6 ${isUser ? 'rounded-br bg-[#2563EB] text-white' : 'rounded-bl bg-white text-[#1a2340] shadow-sm'}`}>
         {text}
         <p className={`mt-1 text-[10px] ${isUser ? 'text-blue-100' : 'text-[#9ca3c8]'}`}>Just now</p>
@@ -1605,20 +1992,26 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [ruleOpen, setRuleOpen] = useState(false);
-  const [selectedTicketId, setSelectedTicketId] = useState(initialTicketId || 'INC-2847');
+  const [serviceRequest, setServiceRequest] = useState(null);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [assetOpen, setAssetOpen] = useState(false);
+  const [articleOpen, setArticleOpen] = useState(false);
+  const [selectedTicketId, setSelectedTicketId] = useState(initialTicketId || '');
   const [loadingData, setLoadingData] = useState(true);
+  const [generatingReport, setGeneratingReport] = useState(false);
   const [apiError, setApiError] = useState('');
   const [data, setData] = useState({
     summary: null,
-    ticketRows: tickets,
-    requestRows: requests,
-    problemRows: problems,
-    changeRows: changes,
-    assetRows: assets,
-    articleRows: articles,
-    catalogRows: catalog,
+    ticketRows: [],
+    requestRows: [],
+    problemRows: [],
+    changeRows: [],
+    assetRows: [],
+    articleRows: [],
+    catalogRows: [],
     report: null,
     users: [],
+    agents: [],
     automationRules: []
   });
 
@@ -1633,8 +2026,8 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
     navigate(`/incidents/${ticketId}`);
   };
 
-  const loadPortalData = async () => {
-    setLoadingData(true);
+  const loadPortalData = async (showLoading = true) => {
+    if (showLoading) setLoadingData(true);
     setApiError('');
 
     try {
@@ -1649,6 +2042,7 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
         catalogRes,
         reportRes,
         usersRes,
+        agentsRes,
         automationRes
       ] = await Promise.all([
         api.get('/dashboard/summary'),
@@ -1661,6 +2055,7 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
         api.get('/catalog'),
         api.get('/reports/service-desk').catch(() => ({ data: null })),
         api.get('/users').catch(() => ({ data: [] })),
+        api.get('/auth/staff').catch(() => ({ data: [] })),
         api.get('/automation').catch(() => ({ data: [] }))
       ]);
 
@@ -1675,17 +2070,33 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
         catalogRows: toCatalogRows(catalogRes.data),
         report: reportRes.data,
         users: usersRes.data,
+        agents: agentsRes.data,
         automationRules: automationRes.data
       });
     } catch (error) {
       setApiError(error.response?.data?.message || 'Could not load live backend data. Showing built-in demo data.');
     } finally {
-      setLoadingData(false);
+      if (showLoading) setLoadingData(false);
+    }
+  };
+
+  const generateReport = async () => {
+    setGeneratingReport(true);
+    try {
+      const { data: report } = await api.get('/reports/service-desk');
+      setData((current) => ({ ...current, report }));
+      toast.success('Report generated successfully.');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not generate the report.');
+    } finally {
+      setGeneratingReport(false);
     }
   };
 
   useEffect(() => {
     loadPortalData();
+    const refreshTimer = window.setInterval(() => loadPortalData(false), 30000);
+    return () => window.clearInterval(refreshTimer);
   }, []);
 
   useEffect(() => {
@@ -1709,19 +2120,38 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
   }));
 
   const pages = {
-    ticketDetail: <TicketDetailPage showPage={setPage} ticketId={selectedTicketId} />,
-    portal: <SelfServicePortalPage showPage={setPage} />,
+    ticketDetail: <TicketDetailPage showPage={setPage} ticketId={selectedTicketId} users={data.agents} onUpdated={loadPortalData} />,
+    portal: <SelfServicePortalPage showPage={setPage} user={user} ticketRows={data.ticketRows} articleRows={data.articleRows} openTicketModal={() => setModalOpen(true)} />,
     users: <UsersRolesPage openInvite={() => setInviteOpen(true)} users={data.users} />,
     automation: <AutomationPage openRule={() => setRuleOpen(true)} automationRules={data.automationRules} />,
-    dashboard: <DashboardHome openModal={() => setModalOpen(true)} showPage={setPage} summary={data.summary} ticketRows={data.ticketRows} />,
-    incidents: <IncidentsPage openModal={() => setModalOpen(true)} ticketRows={data.ticketRows} openTicket={openTicket} />,
-    requests: <RequestsPage showPage={setPage} requestRows={data.requestRows} />,
+    dashboard: user?.role === 'admin'
+      ? <AdminDashboardHome openModal={() => setModalOpen(true)} showPage={setPage} summary={data.summary} ticketRows={data.ticketRows} user={user} users={data.users} openTicket={openTicket} />
+      : <DashboardHome openModal={() => setModalOpen(true)} showPage={setPage} summary={data.summary} ticketRows={data.ticketRows} user={user} users={data.users} />,
+    incidents: <IncidentsPage
+      openModal={() => setModalOpen(true)}
+      ticketRows={data.ticketRows}
+      openTicket={openTicket}
+      summary={data.summary}
+      onExport={() => downloadCsv('incidents.csv', ['ID', 'Subject', 'Requester', 'Assigned to', 'Priority', 'Status', 'SLA', 'Created'], data.ticketRows)}
+    />,
+    requests: <RequestsPage showPage={setPage} requestRows={data.requestRows} summary={data.summary} />,
     problems: <ProblemsPage problemRows={data.problemRows} />,
     changes: <ChangesPage changeRows={data.changeRows} />,
-    catalog: <CatalogPage catalogRows={data.catalogRows} />,
-    assets: <AssetsPage assetRows={data.assetRows} />,
-    kb: <KnowledgePage articleRows={data.articleRows} />,
-    reports: <ReportsPage report={data.report} />,
+    catalog: <CatalogPage catalogRows={data.catalogRows} onRequest={setServiceRequest} openCatalog={() => setCatalogOpen(true)} user={user} />,
+    assets: <AssetsPage assetRows={data.assetRows} openAsset={() => setAssetOpen(true)} user={user} />,
+    kb: <KnowledgePage articleRows={data.articleRows} openArticle={() => setArticleOpen(true)} user={user} />,
+    reports: <ReportsPage
+      report={data.report}
+      onGenerate={generateReport}
+      generating={generatingReport}
+      onExport={() => downloadCsv('service-desk-report.csv', ['Metric', 'Value'], [
+        ['Total tickets', data.report?.totalTickets ?? 0],
+        ['Resolution rate', `${data.report?.resolutionRate ?? 0}%`],
+        ['Average resolution time', data.report?.averageResolutionTime ?? '0h'],
+        ['CSAT', `${data.report?.csat ?? 0}%`],
+        ...Object.entries(data.report?.byCategory || {}).map(([category, count]) => [`Tickets: ${category}`, count])
+      ])}
+    />,
     settings: <SettingsPage />
   };
 
@@ -1741,7 +2171,7 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
           <button className='relative text-[#6b7fa8] transition hover:text-white'><Bell size={19} /><span className='absolute right-0 top-0 h-2 w-2 rounded-full border border-[#0F1B3D] bg-red-500' /></button>
           <button className='text-[#6b7fa8] transition hover:text-white'><HelpCircle size={19} /></button>
           <button onClick={handleLogout} className='text-[#6b7fa8] transition hover:text-white'><LogOut size={19} /></button>
-          <span className='flex h-8 w-8 items-center justify-center rounded-full bg-[#2563EB] text-xs font-extrabold text-white'>{initials(user?.name || 'John Admin')}</span>
+          <span className='flex h-8 w-8 items-center justify-center rounded-full bg-[#2563EB] text-xs font-extrabold text-white'>{initials(user?.name || 'User')}</span>
         </div>
       </header>
 
@@ -1787,9 +2217,13 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
       </div>
 
       <NewTicketModal open={modalOpen} onClose={() => setModalOpen(false)} onCreated={loadPortalData} />
+      <ServiceRequestModal item={serviceRequest} onClose={() => setServiceRequest(null)} onCreated={loadPortalData} />
+      <CatalogModal open={catalogOpen} onClose={() => setCatalogOpen(false)} onCreated={loadPortalData} />
+      <AssetModal open={assetOpen} onClose={() => setAssetOpen(false)} onCreated={loadPortalData} />
+      <ArticleModal open={articleOpen} onClose={() => setArticleOpen(false)} onCreated={loadPortalData} />
       <InviteModal open={inviteOpen} onClose={() => setInviteOpen(false)} onCreated={loadPortalData} />
       <RuleModal open={ruleOpen} onClose={() => setRuleOpen(false)} onCreated={loadPortalData} />
-      <ChatWidget />
+      <ChatWidget user={user} />
     </div>
   );
 }
