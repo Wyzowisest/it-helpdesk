@@ -68,6 +68,7 @@ SEED_ADMIN_PASSWORD=<unique-admin-password-at-least-12-characters>
 4. Choose **Connect → Drivers**, copy the Node.js connection string, replace the username/password placeholders, and use `it_helpdesk_system` as the database name.
 5. If the password contains reserved URL characters, URL-encode them. Never commit `.env` or share connection strings, passwords, or JWT secrets.
 6. Start locally with `npm run dev` from `server`. A configured MongoDB connection must succeed before the API starts accepting requests.
+7. Check `http://localhost:5000/health`; it returns HTTP 200 when MongoDB is connected (or local demo mode is active) and HTTP 503 when the configured database is unavailable. Use `/health` as the Railway service healthcheck path.
 
 For local demo records only, `npm run seed` imports the demo sample dataset. Do not use that seed mode for production. To initialize a production database, set `NODE_ENV=production`, `MONGODB_URI`, `JWT_SECRET`, and `SEED_ADMIN_PASSWORD`, then run `npm run seed`; production seeding creates only the initial admin account (default email `itdirector@company.com`, configurable with `SEED_ADMIN_EMAIL`).
 

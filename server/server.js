@@ -55,6 +55,17 @@ app.use(cors({
 }));
 app.use(express.json());
 
+app.get('/health', (req, res) => {
+  const demoMode = isDemoDatabase();
+  const databaseConnected = mongoose.connection.readyState === 1;
+  const healthy = demoMode || databaseConnected;
+
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? 'ok' : 'unavailable',
+    database: demoMode ? 'demo' : databaseConnected ? 'connected' : 'disconnected'
+  });
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/knowledge', knowledgeRoutes);
@@ -70,7 +81,7 @@ app.use('/api/users', userRoutes);
 
 const startServer = async () => {
   if (isDemoDatabase()) {
-  console.log('MongoDB not configured. Using demo in-memory auth store.');
+    console.log('MongoDB not configured. Using demo in-memory auth store.');
   } else {
     await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 10000 });
     console.log('MongoDB connected');

@@ -1,6 +1,8 @@
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 import Asset from '../models/Asset.js';
 import AutomationRule from '../models/AutomationRule.js';
@@ -23,7 +25,8 @@ import {
   demoUsers
 } from '../utils/demoStore.js';
 
-dotenv.config();
+const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(scriptDirectory, '../.env') });
 
 const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
 const production = process.env.NODE_ENV === 'production';

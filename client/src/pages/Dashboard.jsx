@@ -32,6 +32,7 @@ import {
   LogOut,
   Mail,
   MessageCircle,
+  Menu,
   Monitor,
   Network,
   Paperclip,
@@ -1989,6 +1990,7 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
   const navigate = useNavigate();
   const user = getStoredUser();
   const [page, setPage] = useState(initialPage);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [ruleOpen, setRuleOpen] = useState(false);
@@ -2157,7 +2159,16 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
 
   return (
     <div className='min-h-screen bg-[#F0F2F8] text-[#1a2340]'>
-      <header className='sticky top-0 z-40 flex h-14 items-center gap-4 bg-[#0F1B3D] px-5'>
+      <header className='sticky top-0 z-40 flex h-14 items-center gap-4 bg-[#0F1B3D] px-3 sm:px-5'>
+        <button
+          type='button'
+          onClick={() => setMobileNavOpen((open) => !open)}
+          className='flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white transition hover:bg-white/10 md:hidden'
+          aria-label={mobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'}
+          aria-expanded={mobileNavOpen}
+        >
+          {mobileNavOpen ? <X size={21} /> : <Menu size={21} />}
+        </button>
         <button onClick={() => setPage('dashboard')} className='flex shrink-0 items-center gap-2 text-sm font-extrabold tracking-tight text-white'>
           <span className='flex h-8 w-8 items-center justify-center rounded-lg bg-[#2563EB]'><LifeBuoy size={18} /></span>
           IT Support Center
@@ -2173,6 +2184,44 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
           <button onClick={handleLogout} className='text-[#6b7fa8] transition hover:text-white'><LogOut size={19} /></button>
           <span className='flex h-8 w-8 items-center justify-center rounded-full bg-[#2563EB] text-xs font-extrabold text-white'>{initials(user?.name || 'User')}</span>
         </div>
+        {mobileNavOpen && (
+          <nav className='absolute left-0 right-0 top-full max-h-[calc(100dvh-3.5rem)] overflow-y-auto border-t border-white/10 bg-white px-3 py-3 shadow-xl md:hidden'>
+            {navGroupsWithBadges.map((group) => (
+              <div key={group.label} className='mb-3'>
+                <p className='px-3 pb-1 text-[10px] font-extrabold uppercase tracking-widest text-[#9ca3c8]'>{group.label}</p>
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  const active = page === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        setPage(item.id);
+                        setMobileNavOpen(false);
+                      }}
+                      className={`mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-semibold transition ${active ? 'bg-[#EEF3FE] text-[#2563EB]' : 'text-[#4b5a7a] hover:bg-[#F0F4FF] hover:text-[#2563EB]'}`}
+                    >
+                      <Icon size={18} />
+                      <span className='min-w-0 flex-1'>{item.label}</span>
+                      {item.badge && <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold text-white ${item.amber ? 'bg-amber-600' : 'bg-[#2563EB]'}`}>{item.badge}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            <div className='border-t border-[#eef1f8] pt-2'>
+              <button
+                onClick={() => {
+                  setPage('settings');
+                  setMobileNavOpen(false);
+                }}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-semibold transition ${page === 'settings' ? 'bg-[#EEF3FE] text-[#2563EB]' : 'text-[#4b5a7a] hover:bg-[#F0F4FF] hover:text-[#2563EB]'}`}
+              >
+                <Settings size={18} /> Settings
+              </button>
+            </div>
+          </nav>
+        )}
       </header>
 
       <div className='flex'>
