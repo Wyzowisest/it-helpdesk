@@ -32,4 +32,38 @@ router.patch('/:id/role', async (req, res) => {
   res.json(await User.findByIdAndUpdate(req.params.id, { role }, { new: true }).select('-password'));
 });
 
+router.delete('/:id', async (req, res) => {
+  if (isDemoDatabase()) {
+    const userIndex = demoUsers.findIndex((item) => item._id === req.params.id);
+    if (userIndex === -1) return res.status(404).json({ message: 'User not found' });
+
+    const target = demoUsers[userIndex];
+    if (target._id === req.user.id) {
+      return res.status(400).json({ message: 'You cannot delete your own account' });
+    }
+    if (target.role === 'admin' && target.isActive !== false && demoUsers.filter((item) => item.role === 'admin' && item.isActive !== false).length <= 1) {
+      return res.status(400).json({ message: 'The last active administrator cannot be deleted' });
+    }
+
+    demoUsers.splice(userIndex, 1);
+    return res.json({ message: 'User deleted successfully' });
+  }
+
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    return res.status(400).json({ message: 'Invalid user ID' });
+  }
+
+  const target = await User.findById(req.params.id);
+  if (!target) return res.status(404).json({ message: 'User not found' });
+  if (target._id.toString() === req.user.id) {
+    return res.status(400).json({ message: 'You cannot delete your own account' });
+  }
+  if (target.role === 'admin' && target.isActive && await User.countDocuments({ role: 'admin', isActive: true }) <= 1) {
+    return res.status(400).json({ message: 'The last active administrator cannot be deleted' });
+  }
+
+  await target.deleteOne();
+  res.json({ message: 'User deleted successfully' });
+});
+
 export default router;

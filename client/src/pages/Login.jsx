@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogIn } from 'lucide-react';
+import { Eye, EyeOff, LogIn } from 'lucide-react';
 import api, { saveSession } from '../api';
 
 function Login() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: '', password: '' });
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -42,14 +43,26 @@ function Login() {
             onChange={(event) => setForm({ ...form, email: event.target.value })}
             required
           />
-          <input
-            type='password'
-            placeholder='Password'
-            className='w-full rounded-md border border-slate-300 p-3 text-slate-900 outline-blue-500'
-            value={form.password}
-            onChange={(event) => setForm({ ...form, password: event.target.value })}
-            required
-          />
+          <div className='relative'>
+            <input
+              type={showPassword ? 'text' : 'password'}
+              placeholder='Password'
+              autoComplete='current-password'
+              className='w-full rounded-md border border-slate-300 p-3 pr-12 text-slate-900 outline-blue-500'
+              value={form.password}
+              onChange={(event) => setForm({ ...form, password: event.target.value })}
+              required
+            />
+            <button
+              type='button'
+              onClick={() => setShowPassword((visible) => !visible)}
+              className='absolute inset-y-0 right-0 flex items-center px-3 text-slate-500 hover:text-slate-800'
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              aria-pressed={showPassword}
+            >
+              {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
+            </button>
+          </div>
 
           <button className='flex w-full items-center justify-center gap-2 rounded-md bg-blue-600 p-3 font-semibold text-white hover:bg-blue-700' disabled={loading}>
             <LogIn size={18} />

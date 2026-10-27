@@ -1468,16 +1468,16 @@ function Announcement({ title, label, body, danger = false }) {
   );
 }
 
-function UsersRolesPage({ openInvite, users, user, usersError }) {
+function UsersRolesPage({ openInvite, users, user, usersError, onDeleteUser }) {
   const [activeRole, setActiveRole] = useState('All roles');
   const [search, setSearch] = useState('');
-  const userItems = (users || []).map((user) => [user.name, user.email, initials(user.name), user.role === 'admin' ? 'Admin' : user.role === 'staff' ? 'Agent' : 'Requester', user.isActive === false ? 'Inactive' : 'Active', user.isActive !== false]);
+  const userItems = (users || []).map((user) => [user._id || user.id, user.name, user.email, initials(user.name), user.role === 'admin' ? 'Admin' : user.role === 'staff' ? 'Agent' : 'Requester', user.isActive === false ? 'Inactive' : 'Active', user.isActive !== false]);
   const filteredUserItems = userItems.filter((person) => {
     const roleMatches = activeRole === 'All roles'
-      || (activeRole === 'Admins' && person[3] === 'Admin')
-      || (activeRole === 'Agents' && person[3] === 'Agent')
-      || (activeRole === 'Viewers' && person[3] === 'Requester');
-    const searchMatches = `${person[0]} ${person[1]} ${person[3]}`.toLowerCase().includes(search.trim().toLowerCase());
+      || (activeRole === 'Admins' && person[4] === 'Admin')
+      || (activeRole === 'Agents' && person[4] === 'Agent')
+      || (activeRole === 'Viewers' && person[4] === 'Requester');
+    const searchMatches = `${person[1]} ${person[2]} ${person[4]}`.toLowerCase().includes(search.trim().toLowerCase());
     return roleMatches && searchMatches;
   });
   const adminCount = (users || []).filter((user) => user.role === 'admin').length;
@@ -1505,7 +1505,7 @@ function UsersRolesPage({ openInvite, users, user, usersError }) {
               {['All roles', 'Admins', 'Agents', 'Viewers'].map((tab) => <button key={tab} type='button' onClick={() => setActiveRole(tab)} aria-pressed={activeRole === tab} className={`rounded-full border px-4 py-1.5 text-xs font-bold ${activeRole === tab ? 'border-[#2563EB] bg-[#2563EB] text-white' : 'border-[#e4e9f4] text-[#6b7fa8]'}`}>{tab}</button>)}
             </div>
             <div className='divide-y divide-[#f3f5fb]'>
-              {filteredUserItems.map((person) => <UserRow key={person[1]} person={person} />)}
+              {filteredUserItems.map((person) => <UserRow key={person[2]} person={person} canDelete={user?.role === 'admin' && person[0] !== user.id} onDelete={onDeleteUser} />)}
               {!filteredUserItems.length && <EmptyPanel text={userItems.length ? 'No users match this filter.' : 'No users loaded yet.'} />}
             </div>
           </Card>
@@ -1529,8 +1529,8 @@ function UsersRolesPage({ openInvite, users, user, usersError }) {
   );
 }
 
-function UserRow({ person }) {
-  const [name, email, code, role, status, online] = person;
+function UserRow({ person, canDelete, onDelete }) {
+  const [id, name, email, code, role, status, online] = person;
   return (
     <div className={`flex items-center gap-3 px-4 py-3 ${status === 'Pending' ? 'bg-amber-50/60' : ''}`}>
       <span className={`h-2 w-2 rounded-full ${online ? 'bg-emerald-500' : status === 'Pending' ? 'bg-amber-500' : 'bg-slate-400'}`} />
@@ -1538,8 +1538,8 @@ function UserRow({ person }) {
       <div className='min-w-0 flex-1'><h4 className='text-sm font-bold text-[#1a2340]'>{name}</h4><p className='text-xs text-[#9ca3c8]'>{email}</p></div>
       <Badge>{role}</Badge>
       <Badge>{status}</Badge>
-      <button className='rounded-lg border border-[#e4e9f4] p-2 text-[#9ca3c8] hover:border-[#2563EB] hover:text-[#2563EB]'><Edit3 size={15} /></button>
-      <button className='rounded-lg border border-[#e4e9f4] p-2 text-[#9ca3c8] hover:border-red-500 hover:text-red-600'><Trash2 size={15} /></button>
+      <button type='button' disabled className='rounded-lg border border-[#e4e9f4] p-2 text-[#9ca3c8]' aria-label={`Edit ${name}`} title='Editing is not available yet'><Edit3 size={15} /></button>
+      {canDelete && <button type='button' onClick={() => onDelete?.(id, name)} className='rounded-lg border border-[#e4e9f4] p-2 text-[#9ca3c8] hover:border-red-500 hover:text-red-600' aria-label={`Delete ${name}`} title={`Delete ${name}`}><Trash2 size={15} /></button>}
     </div>
   );
 }
@@ -2117,6 +2117,18 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
     }
   };
 
+  const deleteUser = async (id, name) => {
+    if (!window.confirm(`Delete ${name}? This action cannot be undone.`)) return;
+
+    try {
+      await api.delete(`/users/${id}`);
+      toast.success(`${name} deleted.`);
+      await loadPortalData();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not delete this user.');
+    }
+  };
+
   useEffect(() => {
     loadPortalData();
     const refreshTimer = window.setInterval(() => loadPortalData(false), 30000);
@@ -2146,7 +2158,7 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
   const pages = {
     ticketDetail: <TicketDetailPage showPage={setPage} ticketId={selectedTicketId} users={data.agents} onUpdated={loadPortalData} />,
     portal: <SelfServicePortalPage showPage={setPage} user={user} ticketRows={data.ticketRows} articleRows={data.articleRows} openTicketModal={() => setModalOpen(true)} />,
-    users: <UsersRolesPage openInvite={() => setInviteOpen(true)} users={data.users} user={user} usersError={usersError} />,
+    users: <UsersRolesPage openInvite={() => setInviteOpen(true)} users={data.users} user={user} usersError={usersError} onDeleteUser={deleteUser} />,
     automation: <AutomationPage openRule={() => setRuleOpen(true)} automationRules={data.automationRules} />,
     dashboard: user?.role === 'admin'
       ? <AdminDashboardHome openModal={() => setModalOpen(true)} showPage={setPage} summary={data.summary} ticketRows={data.ticketRows} user={user} users={data.users} openTicket={openTicket} />
