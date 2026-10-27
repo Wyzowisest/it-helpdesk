@@ -1468,8 +1468,18 @@ function Announcement({ title, label, body, danger = false }) {
   );
 }
 
-function UsersRolesPage({ openInvite, users }) {
+function UsersRolesPage({ openInvite, users, user, usersError }) {
+  const [activeRole, setActiveRole] = useState('All roles');
+  const [search, setSearch] = useState('');
   const userItems = (users || []).map((user) => [user.name, user.email, initials(user.name), user.role === 'admin' ? 'Admin' : user.role === 'staff' ? 'Agent' : 'Requester', user.isActive === false ? 'Inactive' : 'Active', user.isActive !== false]);
+  const filteredUserItems = userItems.filter((person) => {
+    const roleMatches = activeRole === 'All roles'
+      || (activeRole === 'Admins' && person[3] === 'Admin')
+      || (activeRole === 'Agents' && person[3] === 'Agent')
+      || (activeRole === 'Viewers' && person[3] === 'Requester');
+    const searchMatches = `${person[0]} ${person[1]} ${person[3]}`.toLowerCase().includes(search.trim().toLowerCase());
+    return roleMatches && searchMatches;
+  });
   const adminCount = (users || []).filter((user) => user.role === 'admin').length;
   const agentCount = (users || []).filter((user) => user.role === 'staff').length;
   const requesterCount = (users || []).filter((user) => user.role === 'user').length;
@@ -1477,8 +1487,10 @@ function UsersRolesPage({ openInvite, users }) {
   return (
     <>
       <PageHeader title='Users & Role Management' subtitle='Manage agents, requesters, and access permissions'>
-        <Button onClick={openInvite}><UserPlus size={16} /> Invite user</Button>
+        {user?.role === 'admin' && <Button onClick={openInvite}><UserPlus size={16} /> Add user</Button>}
       </PageHeader>
+      {usersError && <div className='mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800'>{usersError}</div>}
+      {user?.role !== 'admin' && <div className='mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800'>Only an administrator can view or add users. Sign in with an admin account to manage access.</div>}
       <div className='mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5'>
         <StatCard label='Total users' value={users?.length || 0} />
         <StatCard label='Admins' value={adminCount} accent='text-violet-600' />
@@ -1488,13 +1500,13 @@ function UsersRolesPage({ openInvite, users }) {
       </div>
       <div className='grid grid-cols-1 gap-5 xl:grid-cols-[1fr_300px]'>
         <div className='space-y-4'>
-          <Card title='Agents & admins' icon={ShieldCheck} action={<input className='rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none' placeholder='Search agents...' />}>
+          <Card title='Agents & admins' icon={ShieldCheck} action={<input className='w-full rounded-lg border border-[#d1d9ef] px-3 py-2 text-sm outline-none sm:w-auto' placeholder='Search users...' value={search} onChange={(event) => setSearch(event.target.value)} />}>
             <div className='flex flex-wrap gap-2 px-4 pt-3'>
-              {['All roles', 'Admins', 'Agents', 'Viewers'].map((tab, index) => <button key={tab} className={`rounded-full border px-4 py-1.5 text-xs font-bold ${index === 0 ? 'border-[#2563EB] bg-[#2563EB] text-white' : 'border-[#e4e9f4] text-[#6b7fa8]'}`}>{tab}</button>)}
+              {['All roles', 'Admins', 'Agents', 'Viewers'].map((tab) => <button key={tab} type='button' onClick={() => setActiveRole(tab)} aria-pressed={activeRole === tab} className={`rounded-full border px-4 py-1.5 text-xs font-bold ${activeRole === tab ? 'border-[#2563EB] bg-[#2563EB] text-white' : 'border-[#e4e9f4] text-[#6b7fa8]'}`}>{tab}</button>)}
             </div>
             <div className='divide-y divide-[#f3f5fb]'>
-              {userItems.map((person) => <UserRow key={person[1]} person={person} />)}
-              {!userItems.length && <EmptyPanel text='No users loaded yet.' />}
+              {filteredUserItems.map((person) => <UserRow key={person[1]} person={person} />)}
+              {!filteredUserItems.length && <EmptyPanel text={userItems.length ? 'No users match this filter.' : 'No users loaded yet.'} />}
             </div>
           </Card>
           <Card title='Teams' icon={Users} action={<Button variant='secondary'><Plus size={14} /> Add team</Button>}>
@@ -1836,7 +1848,10 @@ function InviteModal({ open, onClose, onCreated }) {
       onClose();
       setForm({ firstName: '', lastName: '', email: '', password: '', role: 'staff', department: 'Hardware', note: '' });
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Could not invite this user.');
+      const message = error.response?.status === 403
+        ? 'Only an administrator can add users. Sign in with an admin account.'
+        : error.response?.data?.message || 'Could not add this user.';
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -2002,6 +2017,7 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
   const [loadingData, setLoadingData] = useState(true);
   const [generatingReport, setGeneratingReport] = useState(false);
   const [apiError, setApiError] = useState('');
+  const [usersError, setUsersError] = useState('');
   const [data, setData] = useState({
     summary: null,
     ticketRows: [],
@@ -2056,7 +2072,12 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
         api.get('/knowledge'),
         api.get('/catalog'),
         api.get('/reports/service-desk').catch(() => ({ data: null })),
-        api.get('/users').catch(() => ({ data: [] })),
+        api.get('/users').catch((error) => ({
+          data: [],
+          error: error.response?.status === 403
+            ? 'Your account does not have permission to manage users.'
+            : 'Could not load users. Check the API connection and try again.'
+        })),
         api.get('/auth/staff').catch(() => ({ data: [] })),
         api.get('/automation').catch(() => ({ data: [] }))
       ]);
@@ -2075,6 +2096,7 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
         agents: agentsRes.data,
         automationRules: automationRes.data
       });
+      setUsersError(usersRes.error || '');
     } catch (error) {
       setApiError(error.response?.data?.message || 'Could not load live backend data. Showing built-in demo data.');
     } finally {
@@ -2124,7 +2146,7 @@ function Dashboard({ initialPage = 'dashboard', initialTicketId }) {
   const pages = {
     ticketDetail: <TicketDetailPage showPage={setPage} ticketId={selectedTicketId} users={data.agents} onUpdated={loadPortalData} />,
     portal: <SelfServicePortalPage showPage={setPage} user={user} ticketRows={data.ticketRows} articleRows={data.articleRows} openTicketModal={() => setModalOpen(true)} />,
-    users: <UsersRolesPage openInvite={() => setInviteOpen(true)} users={data.users} />,
+    users: <UsersRolesPage openInvite={() => setInviteOpen(true)} users={data.users} user={user} usersError={usersError} />,
     automation: <AutomationPage openRule={() => setRuleOpen(true)} automationRules={data.automationRules} />,
     dashboard: user?.role === 'admin'
       ? <AdminDashboardHome openModal={() => setModalOpen(true)} showPage={setPage} summary={data.summary} ticketRows={data.ticketRows} user={user} users={data.users} openTicket={openTicket} />
